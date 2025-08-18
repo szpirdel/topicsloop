@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
 const Register = () => {
   const [email, setEmail] = useState("");
@@ -11,42 +12,42 @@ const Register = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError(""); // Clear previous errors
+    
     if (password !== passwordConfirm) {
       setError("Passwords do not match");
       return;
     }
 
-    // Pobierz token CSRF z ciasteczka
-    const csrfToken = document.cookie
-      .split("; ")
-      .find((row) => row.startsWith("csrftoken="))
-      ?.split("=")[1];
-
     try {
-      const response = await fetch("http://localhost:8000/dj-rest-auth/registration/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrfToken, // Dodaj token CSRF
-        },
-        body: JSON.stringify({
-          email,
-          username,
-          password1: password,
-          password2: passwordConfirm,
-        }),
+      const response = await axios.post("http://localhost:8000/auth/users/", {
+        email: email,
+        username: username,
+        password: password,
+        re_password: passwordConfirm,
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.non_field_errors || "Something went wrong");
+      console.log("Registration successful:", response.data);
+      navigate("/login"); // Redirect to login page
+    } catch (error) {
+      console.error("Registration error:", error);
+      if (error.response?.data) {
+        // Handle different types of errors
+        const errorData = error.response.data;
+        if (errorData.email) {
+          setError(`Email: ${errorData.email[0]}`);
+        } else if (errorData.username) {
+          setError(`Username: ${errorData.username[0]}`);
+        } else if (errorData.password) {
+          setError(`Password: ${errorData.password[0]}`);
+        } else if (errorData.non_field_errors) {
+          setError(errorData.non_field_errors[0]);
+        } else {
+          setError("Registration failed. Please try again.");
+        }
+      } else {
+        setError("Network error. Please try again.");
       }
-
-      const data = await response.json();
-      console.log("Registration successful:", data);
-      navigate("/login"); // Przekierowanie na stronę logowania
-    } catch (err) {
-      setError(err.message);
     }
   };
 
