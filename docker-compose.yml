@@ -46,14 +46,14 @@ services:
     stdin_open: true
     tty: true 
 
-  frontend-dev:
-    build: ./frontend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    command: sh -c "npm install && npm start"
-    ports:
-      - "3000:3000"  
+  # frontend-dev:
+  #   build: ./frontend
+  #   volumes:
+  #     - ./frontend:/app
+  #     - /app/node_modules
+  #   command: sh -c "npm install && npm start"
+  #   ports:
+  #     - "3000:3000"  
 
 volumes:
   postgres_data:
