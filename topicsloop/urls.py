@@ -28,13 +28,15 @@ from rest_framework_simplejwt.views import (
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),  # URL dla API aplikacji
+    path('blog/', include('blog.urls')),  # URL dla aplikacji blogowej
     path('home/', home, name='home'),  # Path for the home page (zmieniłem na 'home/' dla unikalności)
     path('auth/', include('djoser.urls')),  # Rejestracja, logowanie, JWT authentication
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('frontend/', FrontendAppView.as_view(), name='frontend'),  # Widok dla Reacta
-    path('', FrontendAppView.as_view(), name="frontend-home"),
-    path('<path:path>', FrontendAppView.as_view(), name="catch-all"),
+    path('', home, name='home-root'),  # Strona główna
+    #path('frontend/', FrontendAppView.as_view(), name='frontend'),  # Widok dla Reacta
+    #path('', FrontendAppView.as_view(), name="frontend-home"),
+    #path('<path:path>', FrontendAppView.as_view(), name="catch-all"),
 ]
 
 if settings.DEBUG:
