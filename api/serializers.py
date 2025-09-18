@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from blog.models import Post, Category, Tag
-from accounts.models import CustomUser
+from accounts.models import CustomUser, UserProfile
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -74,5 +74,37 @@ class PostSerializer(serializers.ModelSerializer):
             instance.additional_categories.set(additional_category_ids)
         if tag_ids is not None:
             instance.tags.set(tag_ids)
+
+        return instance
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    favorite_categories = CategorySerializer(many=True, read_only=True)
+    favorite_category_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False,
+        help_text="List of category IDs to set as favorites"
+    )
+    user = UserSerializer(read_only=True)
+
+    class Meta:
+        model = UserProfile
+        fields = [
+            'id', 'user', 'bio', 'favorite_categories',
+            'favorite_category_ids', 'created_at', 'updated_at'
+        ]
+
+    def update(self, instance, validated_data):
+        favorite_category_ids = validated_data.pop('favorite_category_ids', None)
+
+        # Update basic fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        # Update favorite categories if provided
+        if favorite_category_ids is not None:
+            instance.favorite_categories.set(favorite_category_ids)
 
         return instance
