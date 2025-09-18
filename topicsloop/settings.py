@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'djoser',
     'accounts',
+    'ai_models',  # AI-enhanced data models
 ]
 
 STATIC_URL = '/static/'
