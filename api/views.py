@@ -157,3 +157,134 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 serializer.save()
                 return Response(serializer.data)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CategoryNetworkView(APIView):
+    """
+    Returns category network data for vis.js visualization
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        Returns category network data for vis.js
+        Structure: nodes (categories) + edges (connections via posts)
+        """
+        from django.db.models import Count
+        from collections import defaultdict
+
+        # Get all categories with post counts
+        categories = Category.objects.annotate(
+            post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True)
+        ).filter(post_count__gt=0)
+
+        # Create nodes
+        nodes = []
+        for category in categories:
+            nodes.append({
+                'id': category.id,
+                'label': category.name,
+                'title': f"{category.name}\n{category.description}\nPosts: {category.post_count}",
+                'value': category.post_count,  # Size based on post count
+                'group': 'category'
+            })
+
+        # Create edges based on posts that share categories
+        edges = []
+        edge_weights = defaultdict(int)
+
+        # Get posts with their categories
+        posts = Post.objects.prefetch_related('primary_category', 'additional_categories').all()
+
+        for post in posts:
+            post_categories = []
+            if post.primary_category:
+                post_categories.append(post.primary_category.id)
+            post_categories.extend([cat.id for cat in post.additional_categories.all()])
+
+            # Create edges between all category pairs in this post
+            for i, cat1 in enumerate(post_categories):
+                for cat2 in post_categories[i+1:]:
+                    edge_key = tuple(sorted([cat1, cat2]))
+                    edge_weights[edge_key] += 1
+
+        # Convert edge weights to vis.js format
+        for (cat1, cat2), weight in edge_weights.items():
+            edges.append({
+                'from': cat1,
+                'to': cat2,
+                'value': weight,
+                'title': f"Shared in {weight} post(s)",
+                'width': min(weight * 2, 10)  # Limit max width
+            })
+
+        return Response({
+            'nodes': nodes,
+            'edges': edges,
+            'stats': {
+                'total_categories': len(nodes),
+                'total_connections': len(edges),
+                'most_connected': max(categories, key=lambda c: c.post_count).name if categories else None
+            }
+        })
+
+
+class UserNetworkView(APIView):
+    """
+    Returns user network based on shared interests
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        Returns user network based on shared interests
+        """
+        # Get users with their favorite categories
+        from collections import defaultdict
+
+        profiles = UserProfile.objects.prefetch_related('favorite_categories', 'user').all()
+
+        nodes = []
+        edges = []
+
+        # Create user nodes
+        for profile in profiles:
+            if profile.favorite_categories.exists():
+                nodes.append({
+                    'id': f"user_{profile.user.id}",
+                    'label': profile.user.username,
+                    'title': f"{profile.user.username}\nInterests: {', '.join([cat.name for cat in profile.favorite_categories.all()])}",
+                    'group': 'user',
+                    'value': profile.favorite_categories.count()
+                })
+
+        # Create edges based on shared interests
+        for i, profile1 in enumerate(profiles):
+            if not profile1.favorite_categories.exists():
+                continue
+
+            for profile2 in profiles[i+1:]:
+                if not profile2.favorite_categories.exists():
+                    continue
+
+                # Count shared categories
+                shared_categories = set(profile1.favorite_categories.values_list('id', flat=True)) & \
+                                  set(profile2.favorite_categories.values_list('id', flat=True))
+
+                if shared_categories:
+                    edges.append({
+                        'from': f"user_{profile1.user.id}",
+                        'to': f"user_{profile2.user.id}",
+                        'value': len(shared_categories),
+                        'title': f"Shared interests: {len(shared_categories)}",
+                        'width': len(shared_categories)
+                    })
+
+        return Response({
+            'nodes': nodes,
+            'edges': edges,
+            'stats': {
+                'total_users': len(nodes),
+                'total_connections': len(edges)
+            }
+        })

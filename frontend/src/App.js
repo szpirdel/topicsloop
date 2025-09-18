@@ -7,6 +7,7 @@ import PostList from "./components/PostList";
 import CreatePost from "./components/CreatePost";
 import EditPost from "./components/EditPost";
 import Profile from "./components/Profile";
+import Visualization from "./components/Visualization";
 
 const HomePage = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -59,6 +60,7 @@ const HomePage = () => {
       )}
       <nav style={{ margin: '20px 0' }}>
         <a href="/posts" style={{ marginRight: '20px' }}>View Posts</a>
+        <a href="/visualizations" style={{ marginRight: '20px' }}>Knowledge Map</a>
         {isAuthenticated ? (
           <>
             <a href="/create" style={{ marginRight: '20px' }}>Create Post</a>
@@ -104,6 +106,7 @@ const App = () => {
           </div>
         } />
         <Route path="/profile" element={<Profile />} />
+        <Route path="/visualizations" element={<Visualization />} />
         <Route path="/" element={<HomePage />} />
       </Routes>
     </Router>
