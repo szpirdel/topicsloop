@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'djoser',
     'accounts',
     'ai_models',  # AI-enhanced data models
+    'gnn_models',  # Graph Neural Networks
 ]
 
 STATIC_URL = '/static/'

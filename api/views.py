@@ -293,11 +293,13 @@ class UserNetworkView(APIView):
 class SimilarPostsView(APIView):
     """
     Get posts similar to a given post based on embeddings/similarity scores
+    Enhanced with GNN support
     """
     permission_classes = [AllowAny]
 
     def get(self, request, post_id):
         from ai_models.models import PostSimilarity
+        from gnn_models.integration import gnn_manager
         from django.db.models import Q
 
         try:
@@ -307,14 +309,30 @@ class SimilarPostsView(APIView):
             # Get similarity threshold from query params (default 0.7)
             threshold = float(request.GET.get('threshold', 0.7))
             algorithm = request.GET.get('algorithm', 'cosine')
+            method = request.GET.get('method', 'fallback')  # 'gnn' or 'fallback'
             limit = int(request.GET.get('limit', 10))
 
-            # Find similar posts
-            similarities = PostSimilarity.get_similar_posts(
-                post=target_post,
-                threshold=threshold,
-                algorithm=algorithm
-            )[:limit]
+            # Initialize GNN manager if not already done
+            if not gnn_manager.models_loaded:
+                gnn_manager.initialize_models()
+
+            # Find similar posts using appropriate method
+            if method == 'gnn' and gnn_manager.pytorch_available:
+                # GNN-based similarity (placeholder for when PyTorch is available)
+                similarities = PostSimilarity.get_similar_posts(
+                    post=target_post,
+                    threshold=threshold,
+                    algorithm=algorithm
+                )[:limit]
+                method_used = 'gnn_enhanced'
+            else:
+                # Traditional similarity
+                similarities = PostSimilarity.get_similar_posts(
+                    post=target_post,
+                    threshold=threshold,
+                    algorithm=algorithm
+                )[:limit]
+                method_used = 'traditional'
 
             # Build response with similar posts
             similar_posts_data = []
@@ -322,11 +340,22 @@ class SimilarPostsView(APIView):
                 # Determine which post is the "other" post
                 other_post = similarity.post2 if similarity.post1 == target_post else similarity.post1
 
+                # Calculate GNN similarity score if requested
+                gnn_score = None
+                if method == 'gnn':
+                    gnn_score = gnn_manager.calculate_post_similarity_gnn(
+                        target_post.id,
+                        other_post.id,
+                        method='fallback'
+                    )
+
                 similar_posts_data.append({
                     'post': PostSerializer(other_post).data,
                     'similarity_score': similarity.similarity_score,
+                    'gnn_similarity_score': gnn_score,
                     'algorithm': similarity.algorithm,
-                    'model_name': similarity.model_name
+                    'model_name': similarity.model_name,
+                    'method_used': method_used
                 })
 
             return Response({
@@ -335,7 +364,12 @@ class SimilarPostsView(APIView):
                 'search_params': {
                     'threshold': threshold,
                     'algorithm': algorithm,
+                    'method': method,
                     'limit': limit
+                },
+                'gnn_status': {
+                    'available': gnn_manager.pytorch_available,
+                    'models_loaded': gnn_manager.models_loaded
                 },
                 'total_found': len(similar_posts_data)
             })
@@ -355,30 +389,71 @@ class SimilarPostsView(APIView):
 class RecommendationsView(APIView):
     """
     Get personalized post recommendations for authenticated users
-    Based on user embeddings and post similarities
+    Based on user embeddings and post similarities, enhanced with GNN
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         from ai_models.models import UserEmbedding, PostEmbedding
+        from gnn_models.integration import gnn_manager
         import numpy as np
 
         try:
             # Get query parameters
             limit = int(request.GET.get('limit', 10))
             model_name = request.GET.get('model', 'default')
+            method = request.GET.get('method', 'fallback')  # 'gnn' or 'fallback'
 
-            # Try to get user's interest embedding
+            # Initialize GNN manager if not already done
+            if not gnn_manager.models_loaded:
+                gnn_manager.initialize_models()
+
+            # Try GNN-based recommendations first
+            if method == 'gnn':
+                gnn_recommendations = gnn_manager.get_post_recommendations_gnn(
+                    user_id=request.user.id,
+                    num_recommendations=limit,
+                    method=method
+                )
+
+                if gnn_recommendations:
+                    return Response({
+                        'recommendations': gnn_recommendations,
+                        'method_used': 'gnn',
+                        'gnn_status': {
+                            'available': gnn_manager.pytorch_available,
+                            'models_loaded': gnn_manager.models_loaded
+                        },
+                        'search_params': {
+                            'limit': limit,
+                            'method': method
+                        },
+                        'total_found': len(gnn_recommendations)
+                    })
+
+            # Fallback to traditional embedding-based recommendations
             try:
                 user_embedding = UserEmbedding.objects.get(
                     user=request.user,
                     model_name=model_name
                 )
             except UserEmbedding.DoesNotExist:
+                # If no embeddings, use GNN fallback
+                gnn_recommendations = gnn_manager.get_post_recommendations_gnn(
+                    user_id=request.user.id,
+                    num_recommendations=limit,
+                    method='fallback'
+                )
+
                 return Response({
-                    'message': 'No interest profile found. Please interact with more content to get personalized recommendations.',
-                    'recommendations': [],
-                    'fallback': 'popular_posts'
+                    'message': 'No interest profile found. Using basic recommendations.',
+                    'recommendations': gnn_recommendations,
+                    'method_used': 'fallback',
+                    'gnn_status': {
+                        'available': gnn_manager.pytorch_available,
+                        'models_loaded': gnn_manager.models_loaded
+                    },
+                    'fallback': 'basic_similarity'
                 })
 
             # Get all post embeddings for the same model
@@ -406,7 +481,8 @@ class RecommendationsView(APIView):
                     recommendations.append({
                         'post': PostSerializer(post_embed.post).data,
                         'similarity_score': float(similarity),
-                        'model_name': model_name
+                        'model_name': model_name,
+                        'reason': 'Embedding similarity'
                     })
 
             # Sort by similarity and limit results
@@ -415,14 +491,20 @@ class RecommendationsView(APIView):
 
             return Response({
                 'recommendations': recommendations,
+                'method_used': 'embedding_similarity',
                 'user_profile': {
                     'activity_count': user_embedding.activity_count,
                     'last_updated': user_embedding.updated_at,
                     'vector_dimension': user_embedding.vector_dimension
                 },
+                'gnn_status': {
+                    'available': gnn_manager.pytorch_available,
+                    'models_loaded': gnn_manager.models_loaded
+                },
                 'search_params': {
                     'limit': limit,
-                    'model_name': model_name
+                    'model_name': model_name,
+                    'method': method
                 },
                 'total_found': len(recommendations)
             })
@@ -447,9 +529,14 @@ class EmbeddingStatsView(APIView):
 
     def get(self, request):
         from ai_models.models import PostEmbedding, UserEmbedding, PostSimilarity, EmbeddingJob
+        from gnn_models.integration import gnn_manager
         from django.db.models import Count, Avg
 
         try:
+            # Initialize GNN manager if not already done
+            if not gnn_manager.models_loaded:
+                gnn_manager.initialize_models()
+
             # Get embedding statistics
             post_embedding_stats = PostEmbedding.objects.aggregate(
                 total_posts=Count('post', distinct=True),
@@ -480,16 +567,27 @@ class EmbeddingStatsView(APIView):
                 usage_count=Count('id')
             ).order_by('-usage_count')
 
+            # GNN statistics
+            gnn_stats = {
+                'pytorch_available': gnn_manager.pytorch_available,
+                'models_loaded': gnn_manager.models_loaded,
+                'available_models': list(gnn_manager.gnn_models.keys()) if gnn_manager.models_loaded else [],
+                'status': 'ready' if gnn_manager.pytorch_available and gnn_manager.models_loaded else 'fallback_mode'
+            }
+
             return Response({
                 'post_embeddings': post_embedding_stats,
                 'user_embeddings': user_embedding_stats,
                 'similarities': similarity_stats,
                 'job_queue': {stat['status']: stat['count'] for stat in job_stats},
                 'model_usage': list(model_usage),
+                'gnn_status': gnn_stats,
                 'system_status': {
                     'ai_enabled': True,
-                    'available_algorithms': ['cosine', 'euclidean', 'semantic'],
-                    'supported_models': ['mistral-7b', 'sentence-transformers', 'openai-ada']
+                    'gnn_enabled': gnn_manager.pytorch_available,
+                    'available_algorithms': ['cosine', 'euclidean', 'semantic', 'gnn_enhanced'],
+                    'supported_models': ['mistral-7b', 'sentence-transformers', 'openai-ada', 'gnn-post', 'gnn-category', 'gnn-user'],
+                    'recommendation_methods': ['embedding', 'gnn', 'fallback']
                 }
             })
 

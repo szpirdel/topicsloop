@@ -9,3 +9,10 @@ python-dotenv
 # AI/ML dependencies
 numpy>=1.21.0
 scikit-learn>=1.0.0
+
+# PyTorch and Graph Neural Networks
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+torch-geometric>=2.3.0
+# Note: torch-scatter, torch-sparse, etc. will be installed automatically by torch-geometric
