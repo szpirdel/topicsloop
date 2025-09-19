@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Network } from 'vis-network';
 import { DataSet } from 'vis-data';
 import axios from '../api/axios';
@@ -14,7 +14,7 @@ const Visualization = () => {
   const [stats, setStats] = useState({});
 
   // vis.js network options
-  const networkOptions = {
+  const networkOptions = useMemo(() => ({
     nodes: {
       shape: 'dot',
       size: 16,
@@ -66,10 +66,10 @@ const Visualization = () => {
     layout: {
       improvedLayout: true
     }
-  };
+  }), []);
 
   // Fetch graph data from Django API
-  const fetchGraphData = async (graphType) => {
+  const fetchGraphData = useCallback(async (graphType) => {
     setLoading(true);
     setError('');
 
@@ -86,9 +86,10 @@ const Visualization = () => {
       setGraphData(response.data);
       setStats(response.data.stats || {});
 
-      // Update network if it exists
+      // Destroy existing network and let useEffect recreate it
       if (networkInstance.current) {
-        updateNetwork(response.data);
+        networkInstance.current.destroy();
+        networkInstance.current = null;
       }
 
     } catch (err) {
@@ -97,21 +98,10 @@ const Visualization = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  // Update network with new data
-  const updateNetwork = (data) => {
-    if (!networkInstance.current) return;
-
-    const nodes = new DataSet(data.nodes);
-    const edges = new DataSet(data.edges);
-
-    networkInstance.current.setData({ nodes, edges });
-    networkInstance.current.fit();
-  };
+  }, []);
 
   // Initialize network
-  const initializeNetwork = () => {
+  const initializeNetwork = useCallback(() => {
     if (!networkRef.current) return;
 
     const nodes = new DataSet(graphData.nodes);
@@ -133,7 +123,7 @@ const Visualization = () => {
     networkInstance.current.on('hoverNode', (params) => {
       console.log('Node hovered:', params.node);
     });
-  };
+  }, [graphData, networkOptions]);
 
   // Handle graph type change
   const handleGraphTypeChange = (newType) => {
@@ -150,14 +140,14 @@ const Visualization = () => {
         networkInstance.current.destroy();
       }
     };
-  }, []);
+  }, [currentGraph, fetchGraphData]);
 
   // Initialize network when data is loaded
   useEffect(() => {
     if (graphData.nodes.length > 0 && networkRef.current) {
       initializeNetwork();
     }
-  }, [graphData]);
+  }, [graphData, initializeNetwork]);
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
