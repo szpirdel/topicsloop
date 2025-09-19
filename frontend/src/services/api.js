@@ -5,8 +5,22 @@ const publicAPI = axios.create({
   baseURL: "http://localhost:8000",
 });
 
-export const fetchPosts = async () => {
-  const response = await publicAPI.get('/api/posts/');
+export const fetchPosts = async (filters = {}) => {
+  const params = new URLSearchParams();
+
+  if (filters.categories && filters.categories.length > 0) {
+    params.append('categories', filters.categories.join(','));
+  }
+
+  if (filters.showAll) {
+    params.append('show_all', 'true');
+  }
+
+  const url = `/api/posts/${params.toString() ? `?${params.toString()}` : ''}`;
+
+  // Use authenticated API if we have filters (which means user is logged in)
+  const apiInstance = (filters.categories || filters.showAll) ? axios : publicAPI;
+  const response = await apiInstance.get(url);
   return response.data;
 };
 
@@ -28,5 +42,10 @@ export const fetchCategories = async () => {
 
 export const fetchTags = async () => {
   const response = await publicAPI.get('/api/tags/');
+  return response.data;
+};
+
+export const fetchUserProfile = async () => {
+  const response = await axios.get('/api/profile/me/');
   return response.data;
 };

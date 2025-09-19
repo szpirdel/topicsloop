@@ -1,6 +1,7 @@
 """
 Integration module for GNN models with Django AI models
 Provides compatibility layer and fallback methods when PyTorch is not available
+Enhanced with Sentence Transformers for semantic embeddings
 """
 
 import numpy as np
@@ -32,6 +33,20 @@ class GNNIntegrationManager:
         self.pytorch_available = PYTORCH_AVAILABLE
         self.models_loaded = False
         self.gnn_models = {}
+        self.embedding_manager = None
+
+        # Initialize embedding manager
+        self._initialize_embeddings()
+
+    def _initialize_embeddings(self):
+        """Initialize sentence transformers embedding manager"""
+        try:
+            from .embeddings import get_embedding_manager
+            self.embedding_manager = get_embedding_manager()
+            logger.info(f"Embedding manager initialized. Available: {self.embedding_manager.available}")
+        except Exception as e:
+            logger.error(f"Failed to initialize embedding manager: {e}")
+            self.embedding_manager = None
 
     def initialize_models(self) -> bool:
         """Initialize GNN models if PyTorch is available"""
@@ -328,6 +343,224 @@ class GNNIntegrationManager:
         features.append(1.0 if 'code' in content or 'programming' in content else 0.0)
 
         return features
+
+    # ===== SENTENCE TRANSFORMERS INTEGRATION =====
+
+    def generate_post_embedding(self, post_id: int) -> Optional[np.ndarray]:
+        """
+        Generate semantic embedding for a post using sentence transformers
+
+        Args:
+            post_id: Post ID to generate embedding for
+
+        Returns:
+            Embedding vector or None if failed
+        """
+        if not self.embedding_manager or not self.embedding_manager.available:
+            logger.warning("Embedding manager not available")
+            return None
+
+        try:
+            from blog.models import Post
+
+            post = Post.objects.select_related('primary_category', 'author').prefetch_related('tags').get(id=post_id)
+
+            # Get post components
+            title = post.title or ""
+            content = post.content or ""
+            category = post.primary_category.name if post.primary_category else ""
+            tags = [tag.name for tag in post.tags.all()]
+
+            # Generate embedding
+            embedding = self.embedding_manager.generate_post_embedding(title, content, category, tags)
+
+            logger.info(f"Generated embedding for post {post_id}: shape {embedding.shape}")
+            return embedding
+
+        except Exception as e:
+            logger.error(f"Failed to generate embedding for post {post_id}: {e}")
+            return None
+
+    def generate_category_embedding(self, category_id: int) -> Optional[np.ndarray]:
+        """
+        Generate semantic embedding for a category
+
+        Args:
+            category_id: Category ID to generate embedding for
+
+        Returns:
+            Embedding vector or None if failed
+        """
+        if not self.embedding_manager or not self.embedding_manager.available:
+            logger.warning("Embedding manager not available")
+            return None
+
+        try:
+            from blog.models import Category
+
+            category = Category.objects.get(id=category_id)
+
+            # Generate embedding
+            embedding = self.embedding_manager.generate_category_embedding(
+                name=category.name,
+                description=getattr(category, 'description', '')
+            )
+
+            logger.info(f"Generated embedding for category {category_id}: shape {embedding.shape}")
+            return embedding
+
+        except Exception as e:
+            logger.error(f"Failed to generate embedding for category {category_id}: {e}")
+            return None
+
+    def generate_user_embedding(self, user_id: int) -> Optional[np.ndarray]:
+        """
+        Generate semantic embedding for a user based on preferences
+
+        Args:
+            user_id: User ID to generate embedding for
+
+        Returns:
+            Embedding vector or None if failed
+        """
+        if not self.embedding_manager or not self.embedding_manager.available:
+            logger.warning("Embedding manager not available")
+            return None
+
+        try:
+            from accounts.models import UserProfile
+            from blog.models import Post
+
+            # Get user profile
+            try:
+                profile = UserProfile.objects.prefetch_related('favorite_categories').get(user_id=user_id)
+                favorite_categories = [cat.name for cat in profile.favorite_categories.all()]
+            except UserProfile.DoesNotExist:
+                favorite_categories = []
+
+            # Get user's recent posts for interaction history
+            recent_posts = Post.objects.filter(author_id=user_id).order_by('-created_at')[:10]
+            interaction_history = [f"{post.title} {post.content[:100]}" for post in recent_posts]
+
+            # Generate embedding
+            embedding = self.embedding_manager.generate_user_embedding(
+                favorite_categories=favorite_categories,
+                interaction_history=interaction_history
+            )
+
+            logger.info(f"Generated embedding for user {user_id}: shape {embedding.shape}")
+            return embedding
+
+        except Exception as e:
+            logger.error(f"Failed to generate embedding for user {user_id}: {e}")
+            return None
+
+    def calculate_semantic_similarity(self, embedding1: np.ndarray, embedding2: np.ndarray, method: str = 'cosine') -> float:
+        """
+        Calculate semantic similarity between two embeddings
+
+        Args:
+            embedding1: First embedding vector
+            embedding2: Second embedding vector
+            method: Similarity method
+
+        Returns:
+            Similarity score between 0 and 1
+        """
+        if self.embedding_manager:
+            return self.embedding_manager.calculate_similarity(embedding1, embedding2, method)
+        else:
+            # Basic fallback
+            if method == 'cosine':
+                dot_product = np.dot(embedding1, embedding2)
+                norm_product = np.linalg.norm(embedding1) * np.linalg.norm(embedding2)
+                return float(dot_product / norm_product) if norm_product > 0 else 0.0
+            else:
+                return 0.0
+
+    def find_similar_posts_by_embedding(self, post_id: int, top_k: int = 10, threshold: float = 0.5) -> List[Tuple[int, float]]:
+        """
+        Find posts similar to given post using semantic embeddings
+
+        Args:
+            post_id: Target post ID
+            top_k: Number of similar posts to return
+            threshold: Minimum similarity threshold
+
+        Returns:
+            List of (post_id, similarity_score) tuples
+        """
+        target_embedding = self.generate_post_embedding(post_id)
+        if target_embedding is None:
+            return []
+
+        try:
+            from blog.models import Post
+
+            similar_posts = []
+
+            # Get all posts except the target
+            posts = Post.objects.exclude(id=post_id).order_by('-created_at')[:100]  # Limit for performance
+
+            for post in posts:
+                candidate_embedding = self.generate_post_embedding(post.id)
+                if candidate_embedding is not None:
+                    similarity = self.calculate_semantic_similarity(target_embedding, candidate_embedding)
+
+                    if similarity >= threshold:
+                        similar_posts.append((post.id, similarity))
+
+            # Sort by similarity and return top_k
+            similar_posts.sort(key=lambda x: x[1], reverse=True)
+            return similar_posts[:top_k]
+
+        except Exception as e:
+            logger.error(f"Failed to find similar posts for {post_id}: {e}")
+            return []
+
+    def update_post_embedding_cache(self, post_id: int) -> bool:
+        """
+        Update cached embedding for a post
+
+        Args:
+            post_id: Post ID to update
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            embedding = self.generate_post_embedding(post_id)
+            if embedding is not None:
+                # Store in ai_models.PostEmbedding if available
+                try:
+                    from ai_models.models import PostEmbedding
+                    from blog.models import Post
+
+                    post = Post.objects.get(id=post_id)
+
+                    # Update or create embedding
+                    post_embedding, created = PostEmbedding.objects.update_or_create(
+                        post=post,
+                        model_name=self.embedding_manager.model_name,
+                        defaults={
+                            'embedding_vector': embedding.tolist()
+                            # embedding_dimension is set automatically in save()
+                        }
+                    )
+
+                    action = "Created" if created else "Updated"
+                    logger.info(f"{action} cached embedding for post {post_id}")
+                    return True
+
+                except Exception as e:
+                    logger.error(f"Failed to cache embedding for post {post_id}: {e}")
+                    return False
+            else:
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to update embedding cache for post {post_id}: {e}")
+            return False
 
 
 # Global instance

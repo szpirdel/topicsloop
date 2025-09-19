@@ -150,127 +150,93 @@ const Visualization = () => {
   }, [graphData, initializeNetwork]);
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
-      <h2>Knowledge Network Visualization</h2>
-
-      {/* Graph Type Selector */}
-      <div style={{ marginBottom: '20px' }}>
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-          <button
-            onClick={() => handleGraphTypeChange('categories')}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: currentGraph === 'categories' ? '#3498db' : '#ecf0f1',
-              color: currentGraph === 'categories' ? 'white' : '#2c3e50',
-              border: 'none',
-              borderRadius: '5px',
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            Category Network
-          </button>
-
-          <button
-            onClick={() => handleGraphTypeChange('users')}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: currentGraph === 'users' ? '#3498db' : '#ecf0f1',
-              color: currentGraph === 'users' ? 'white' : '#2c3e50',
-              border: 'none',
-              borderRadius: '5px',
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            User Network
-          </button>
-        </div>
-
-        {/* Graph Description */}
-        <p style={{ color: '#7f8c8d', fontSize: '14px' }}>
-          {currentGraph === 'categories'
-            ? 'Shows how categories are connected through shared posts. Node size indicates post count.'
-            : 'Shows users connected by shared interests. Connection strength indicates common categories.'
-          }
-        </p>
+    <div className="content-container">
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h1 style={{ color: '#2c3e50', margin: 0 }}>Knowledge Network Visualization</h1>
       </div>
 
-      {/* Stats Panel */}
-      {!loading && Object.keys(stats).length > 0 && (
-        <div style={{
-          marginBottom: '20px',
-          padding: '15px',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '5px',
-          border: '1px solid #dee2e6'
-        }}>
-          <h4 style={{ margin: '0 0 10px 0' }}>Network Statistics</h4>
-          <div style={{ display: 'flex', gap: '20px', fontSize: '14px' }}>
-            {currentGraph === 'categories' ? (
-              <>
-                <span><strong>Categories:</strong> {stats.total_categories || 0}</span>
-                <span><strong>Connections:</strong> {stats.total_connections || 0}</span>
-                {stats.most_connected && (
-                  <span><strong>Most Connected:</strong> {stats.most_connected}</span>
-                )}
-              </>
-            ) : (
-              <>
-                <span><strong>Users:</strong> {stats.total_users || 0}</span>
-                <span><strong>Connections:</strong> {stats.total_connections || 0}</span>
-              </>
-            )}
+      <div className="visualization-container">
+        {/* Graph Type Selector */}
+        <div className="visualization-controls">
+          <div className="d-flex gap-2">
+            <button
+              onClick={() => handleGraphTypeChange('categories')}
+              className={`btn ${currentGraph === 'categories' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              Category Network
+            </button>
+
+            <button
+              onClick={() => handleGraphTypeChange('users')}
+              className={`btn ${currentGraph === 'users' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              User Network
+            </button>
+
+            <button
+              onClick={() => handleGraphTypeChange('semantic')}
+              className={`btn ${currentGraph === 'semantic' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              AI Semantic Network
+            </button>
           </div>
-        </div>
-      )}
 
-      {/* Loading State */}
-      {loading && (
-        <div style={{
-          textAlign: 'center',
-          padding: '50px',
-          color: '#7f8c8d'
-        }}>
-          <div>Loading {currentGraph} network...</div>
-        </div>
-      )}
+          {/* Graph Description */}
+          <div style={{ color: '#6c757d', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+            {currentGraph === 'categories'
+              ? 'Shows how categories are connected through shared posts. Node size indicates post count.'
+              : currentGraph === 'users'
+              ? 'Shows users connected by shared interests. Connection strength indicates common categories.'
+              : 'AI-powered semantic connections between categories based on content similarity.'
+            }
+          </div>
 
-      {/* Error State */}
-      {error && (
-        <div style={{
-          color: '#e74c3c',
-          backgroundColor: '#fdf2f2',
-          padding: '15px',
-          borderRadius: '5px',
-          marginBottom: '20px',
-          border: '1px solid #fecaca'
-        }}>
-          {error}
+          {/* Stats Panel */}
+          {!loading && Object.keys(stats).length > 0 && (
+            <div className="card mt-2" style={{ margin: 0, padding: '1rem' }}>
+              <div className="card-title" style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>Network Statistics</div>
+              <div className="d-flex gap-3" style={{ fontSize: '0.9rem' }}>
+                {currentGraph === 'categories' || currentGraph === 'semantic' ? (
+                  <>
+                    <span><strong>Categories:</strong> {stats.total_categories || 0}</span>
+                    <span><strong>Connections:</strong> {stats.total_connections || 0}</span>
+                    {stats.most_connected && (
+                      <span><strong>Most Connected:</strong> {stats.most_connected}</span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span><strong>Users:</strong> {stats.total_users || 0}</span>
+                    <span><strong>Connections:</strong> {stats.total_connections || 0}</span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
-      )}
 
-      {/* Network Container */}
-      {!loading && !error && (
-        <div
-          ref={networkRef}
-          style={{
-            width: '100%',
-            height: '600px',
-            border: '1px solid #dee2e6',
-            borderRadius: '5px',
-            backgroundColor: 'white'
-          }}
-        />
-      )}
+        {/* Loading State */}
+        {loading && (
+          <div className="loading-spinner">
+            Loading {currentGraph} network...
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && (
+          <div className="card" style={{ backgroundColor: '#fdf2f2', borderColor: '#fecaca', color: '#dc3545' }}>
+            <div className="card-content">{error}</div>
+          </div>
+        )}
+
+        {/* Network Container */}
+        {!loading && !error && (
+          <div ref={networkRef} className="visualization-canvas" />
+        )}
+      </div>
 
       {/* Controls Info */}
-      <div style={{
-        marginTop: '15px',
-        fontSize: '12px',
-        color: '#6c757d',
-        textAlign: 'center'
-      }}>
+      <div className="text-center mt-3" style={{ fontSize: '0.8rem', color: '#6c757d' }}>
         <strong>Controls:</strong> Drag to pan • Scroll to zoom • Click nodes for details • Hover for information
       </div>
     </div>

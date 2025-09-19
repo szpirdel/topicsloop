@@ -98,149 +98,148 @@ const Profile = () => {
     }
   };
 
-  if (loading) return <div>Loading profile...</div>;
-  if (!profile) return <div>Profile not found</div>;
+  if (loading) return (
+    <div className="content-container">
+      <div className="loading-spinner">Loading profile...</div>
+    </div>
+  );
+
+  if (!profile) return (
+    <div className="content-container">
+      <div className="empty-state">
+        <h3>Profile not found</h3>
+      </div>
+    </div>
+  );
 
   return (
-    <div style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
-      <h2>My Profile</h2>
-
-      {/* User Info */}
-      <div style={{ marginBottom: '30px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '5px' }}>
-        <h3>Account Information</h3>
-        <p><strong>Username:</strong> {profile.user.username}</p>
-        <p><strong>Email:</strong> {profile.user.email}</p>
-        <p><strong>Member since:</strong> {new Date(profile.created_at).toLocaleDateString()}</p>
+    <div className="content-container">
+      <div className="card profile-header">
+        <div className="profile-avatar">
+          {profile.user.username.charAt(0).toUpperCase()}
+        </div>
+        <h1 style={{ margin: 0, marginBottom: '0.5rem' }}>{profile.user.username}</h1>
+        <p style={{ opacity: 0.9, margin: 0 }}>{profile.user.email}</p>
       </div>
 
-      {/* Profile Form */}
-      <form onSubmit={handleSubmit}>
-        {/* Bio Section */}
-        <div style={{ marginBottom: '25px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-            Bio (Tell us about yourself):
-          </label>
-          <textarea
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            placeholder="Share something about yourself..."
-            rows="4"
-            style={{
-              width: '100%',
-              padding: '10px',
-              border: '1px solid #ddd',
-              borderRadius: '4px',
-              fontSize: '14px'
-            }}
-          />
+      <div className="card profile-body">
+        <div className="profile-stats">
+          <div className="stat-card">
+            <div className="stat-number">{profile.favorite_categories.length}</div>
+            <div className="stat-label">Favorite Categories</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-number">{new Date(profile.created_at).getFullYear()}</div>
+            <div className="stat-label">Member Since</div>
+          </div>
         </div>
 
-        {/* Favorite Categories Section */}
-        <div style={{ marginBottom: '25px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '10px' }}>
-            Favorite Categories (Select topics that interest you):
-          </label>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '10px'
-          }}>
-            {categories.map(category => (
-              <div
-                key={category.id}
-                onClick={() => handleCategoryToggle(category.id)}
-                style={{
-                  padding: '12px',
-                  border: `2px solid ${selectedCategories.includes(category.id) ? '#007bff' : '#ddd'}`,
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  backgroundColor: selectedCategories.includes(category.id) ? '#e3f2fd' : 'white',
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                <div style={{ fontWeight: 'bold' }}>{category.name}</div>
-                <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                  {category.description}
-                </div>
-              </div>
-            ))}
+        <form onSubmit={handleSubmit} className="mt-4">
+          {/* Bio Section */}
+          <div className="form-group">
+            <label className="form-label">Bio:</label>
+            <textarea
+              className="form-textarea"
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              placeholder="Tell us about yourself..."
+              rows="4"
+            />
           </div>
-          <p style={{ fontSize: '12px', color: '#666', marginTop: '10px' }}>
-            Selected: {selectedCategories.length} categories
-          </p>
-        </div>
 
-        {/* Messages */}
-        {error && (
-          <div style={{ color: 'red', marginBottom: '15px', padding: '10px', backgroundColor: '#ffe6e6', borderRadius: '4px' }}>
-            {error}
-          </div>
-        )}
-
-        {success && (
-          <div style={{ color: 'green', marginBottom: '15px', padding: '10px', backgroundColor: '#e6ffe6', borderRadius: '4px' }}>
-            {success}
-          </div>
-        )}
-
-        {/* Submit Buttons */}
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            type="submit"
-            disabled={saving}
-            style={{
-              padding: '12px 24px',
-              backgroundColor: saving ? '#ccc' : '#007bff',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: saving ? 'not-allowed' : 'pointer',
-              fontSize: '16px'
-            }}
-          >
-            {saving ? 'Saving...' : 'Save Profile'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            style={{
-              padding: '12px 24px',
-              backgroundColor: '#6c757d',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '16px'
-            }}
-          >
-            Back to Home
-          </button>
-        </div>
-      </form>
-
-      {/* Current Favorites Display */}
-      {profile.favorite_categories.length > 0 && (
-        <div style={{ marginTop: '30px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '5px' }}>
-          <h4>Your Current Favorite Categories:</h4>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' }}>
-            {profile.favorite_categories.map(cat => (
-              <span
-                key={cat.id}
-                style={{
-                  padding: '4px 12px',
-                  backgroundColor: '#007bff',
-                  color: 'white',
-                  borderRadius: '20px',
-                  fontSize: '12px'
-                }}
-              >
-                {cat.name}
+          {/* Favorite Categories Section */}
+          <div className="form-group">
+            <label className="form-label">
+              Favorite Categories
+              <span style={{ color: '#6c757d', fontWeight: 'normal', fontSize: '0.9rem' }}>
+                (Select topics that interest you)
               </span>
-            ))}
+            </label>
+            <div className="card" style={{ padding: '1.5rem', backgroundColor: '#f8f9fa' }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+                gap: '1rem'
+              }}>
+                {categories.map(category => (
+                  <div
+                    key={category.id}
+                    onClick={() => handleCategoryToggle(category.id)}
+                    className="card"
+                    style={{
+                      padding: '1rem',
+                      cursor: 'pointer',
+                      borderColor: selectedCategories.includes(category.id) ? '#007bff' : '#e9ecef',
+                      backgroundColor: selectedCategories.includes(category.id) ? '#e3f2fd' : 'white',
+                      borderWidth: '2px',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <div className="card-title" style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>
+                      {category.name}
+                    </div>
+                    <div className="card-content" style={{ fontSize: '0.8rem' }}>
+                      {category.description}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2" style={{ fontSize: '0.9rem', color: '#6c757d' }}>
+                Selected: <strong>{selectedCategories.length}</strong> categories
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+
+          {/* Messages */}
+          {error && (
+            <div className="card mb-3" style={{ backgroundColor: '#fdf2f2', borderColor: '#fecaca', color: '#dc3545' }}>
+              <div className="card-content">{error}</div>
+            </div>
+          )}
+
+          {success && (
+            <div className="card mb-3" style={{ backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534' }}>
+              <div className="card-content">{success}</div>
+            </div>
+          )}
+
+          {/* Submit Buttons */}
+          <div className="d-flex gap-2">
+            <button
+              type="submit"
+              disabled={saving}
+              className={`btn ${saving ? 'btn-secondary' : 'btn-primary'}`}
+              style={{ flex: 1 }}
+            >
+              {saving ? 'Saving...' : 'Save Profile'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="btn btn-secondary"
+            >
+              Back to Home
+            </button>
+          </div>
+        </form>
+
+        {/* Current Favorites Display */}
+        {profile.favorite_categories.length > 0 && (
+          <div className="card mt-4">
+            <div className="card-title">Your Current Favorite Categories</div>
+            <div className="card-content">
+              <div className="tag-list">
+                {profile.favorite_categories.map(cat => (
+                  <span key={cat.id} className="category-badge">
+                    {cat.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

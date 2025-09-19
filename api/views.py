@@ -9,6 +9,9 @@ from django.http import JsonResponse
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
 from django.shortcuts import get_object_or_404
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def api_root(request):
@@ -27,15 +30,35 @@ class PostListView(APIView):
             'tags'
         ).all()
 
-        # If user is authenticated and has favorite categories, filter by them
+        # Check for manual category filtering via query parameters
+        category_ids = request.query_params.get('categories', None)
+        show_all = request.query_params.get('show_all', 'false').lower() == 'true'
+
         if request.user.is_authenticated:
             try:
                 user_profile = request.user.profile
                 favorite_categories = user_profile.favorite_categories.all()
 
-                if favorite_categories.exists():
-                    # Get posts that match user's favorite categories
-                    # Either primary_category OR any additional_category matches favorites
+                # Manual category selection (via query params)
+                if category_ids and not show_all:
+                    try:
+                        selected_category_ids = [int(cat_id.strip()) for cat_id in category_ids.split(',') if cat_id.strip()]
+                        # Filter by manually selected categories from user's favorites
+                        user_favorite_ids = list(favorite_categories.values_list('id', flat=True))
+                        valid_category_ids = [cat_id for cat_id in selected_category_ids if cat_id in user_favorite_ids]
+
+                        if valid_category_ids:
+                            from django.db.models import Q
+                            category_filter = (
+                                Q(primary_category__id__in=valid_category_ids) |
+                                Q(additional_categories__id__in=valid_category_ids)
+                            )
+                            posts = posts.filter(category_filter).distinct()
+                    except (ValueError, TypeError):
+                        pass  # Invalid category IDs, fall back to default behavior
+
+                # Default behavior: show posts from all favorite categories (if no manual selection)
+                elif not show_all and favorite_categories.exists():
                     from django.db.models import Q
                     category_filter = (
                         Q(primary_category__in=favorite_categories) |
@@ -318,13 +341,37 @@ class SimilarPostsView(APIView):
 
             # Find similar posts using appropriate method
             if method == 'gnn' and gnn_manager.pytorch_available:
-                # GNN-based similarity (placeholder for when PyTorch is available)
-                similarities = PostSimilarity.get_similar_posts(
-                    post=target_post,
-                    threshold=threshold,
-                    algorithm=algorithm
-                )[:limit]
-                method_used = 'gnn_enhanced'
+                # Use semantic embeddings for enhanced similarity
+                semantic_similarities = gnn_manager.find_similar_posts_by_embedding(
+                    post_id=target_post.id,
+                    top_k=limit,
+                    threshold=threshold
+                )
+
+                if semantic_similarities:
+                    # Convert to PostSimilarity-like objects for response
+                    similarities = []
+                    for similar_post_id, similarity_score in semantic_similarities:
+                        try:
+                            similar_post = Post.objects.get(id=similar_post_id)
+                            similarities.append(type('obj', (object,), {
+                                'post1': target_post,
+                                'post2': similar_post,
+                                'similarity_score': similarity_score,
+                                'algorithm': 'sentence_transformers',
+                                'model_name': gnn_manager.embedding_manager.model_name if gnn_manager.embedding_manager else 'unknown'
+                            }))
+                        except Post.DoesNotExist:
+                            continue
+                    method_used = 'semantic_embeddings'
+                else:
+                    # Fallback to traditional
+                    similarities = PostSimilarity.get_similar_posts(
+                        post=target_post,
+                        threshold=threshold,
+                        algorithm=algorithm
+                    )[:limit]
+                    method_used = 'traditional_fallback'
             else:
                 # Traditional similarity
                 similarities = PostSimilarity.get_similar_posts(
@@ -596,3 +643,387 @@ class EmbeddingStatsView(APIView):
                 {'error': f'Failed to get embedding stats: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class EmbeddingGenerationView(APIView):
+    """
+    Generate and manage semantic embeddings using sentence transformers
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        """
+        Generate embeddings for posts, categories, or users
+
+        POST body:
+        {
+            "type": "post|category|user",
+            "id": 123,
+            "batch_ids": [1, 2, 3],  // Alternative to single id
+            "force_update": false
+        }
+        """
+        try:
+            from gnn_models.integration import gnn_manager
+
+            # Initialize if not already done
+            if not gnn_manager.models_loaded:
+                gnn_manager.initialize_models()
+
+            data = request.data
+            embedding_type = data.get('type')
+            entity_id = data.get('id')
+            batch_ids = data.get('batch_ids', [])
+            force_update = data.get('force_update', False)
+
+            if not embedding_type or embedding_type not in ['post', 'category', 'user']:
+                return Response({
+                    'error': 'Invalid embedding type. Must be: post, category, or user'
+                }, status=400)
+
+            results = []
+
+            # Process single ID or batch
+            ids_to_process = batch_ids if batch_ids else ([entity_id] if entity_id else [])
+
+            if not ids_to_process:
+                return Response({
+                    'error': 'No IDs provided'
+                }, status=400)
+
+            for current_id in ids_to_process:
+                try:
+                    if embedding_type == 'post':
+                        embedding = gnn_manager.generate_post_embedding(current_id)
+                        if embedding is not None:
+                            # Update cache if available
+                            cache_updated = gnn_manager.update_post_embedding_cache(current_id)
+                        else:
+                            cache_updated = False
+
+                    elif embedding_type == 'category':
+                        embedding = gnn_manager.generate_category_embedding(current_id)
+                        cache_updated = False  # Category caching not implemented yet
+
+                    elif embedding_type == 'user':
+                        embedding = gnn_manager.generate_user_embedding(current_id)
+                        cache_updated = False  # User caching not implemented yet
+
+                    if embedding is not None:
+                        results.append({
+                            'id': current_id,
+                            'type': embedding_type,
+                            'success': True,
+                            'embedding_dimension': len(embedding),
+                            'cached': cache_updated,
+                            'model': gnn_manager.embedding_manager.model_name if gnn_manager.embedding_manager else 'unknown'
+                        })
+                    else:
+                        results.append({
+                            'id': current_id,
+                            'type': embedding_type,
+                            'success': False,
+                            'error': 'Failed to generate embedding'
+                        })
+
+                except Exception as e:
+                    results.append({
+                        'id': current_id,
+                        'type': embedding_type,
+                        'success': False,
+                        'error': str(e)
+                    })
+
+            return Response({
+                'results': results,
+                'total_processed': len(ids_to_process),
+                'successful': len([r for r in results if r.get('success', False)]),
+                'embedding_manager': {
+                    'available': gnn_manager.embedding_manager.available if gnn_manager.embedding_manager else False,
+                    'model_name': gnn_manager.embedding_manager.model_name if gnn_manager.embedding_manager else None,
+                    'embedding_dimension': gnn_manager.embedding_manager.embedding_dim if gnn_manager.embedding_manager else None
+                }
+            })
+
+        except Exception as e:
+            logger.error(f"Embedding generation failed: {e}")
+            return Response({
+                'error': 'Embedding generation failed',
+                'details': str(e)
+            }, status=500)
+
+    def get(self, request):
+        """
+        Get embedding status and available models
+        """
+        try:
+            from gnn_models.integration import gnn_manager
+
+            return Response({
+                'embedding_manager': {
+                    'available': gnn_manager.embedding_manager.available if gnn_manager.embedding_manager else False,
+                    'model_name': gnn_manager.embedding_manager.model_name if gnn_manager.embedding_manager else None,
+                    'embedding_dimension': gnn_manager.embedding_manager.embedding_dim if gnn_manager.embedding_manager else None
+                },
+                'sentence_transformers_available': gnn_manager.embedding_manager.available if gnn_manager.embedding_manager else False,
+                'supported_types': ['post', 'category', 'user'],
+                'available_models': [
+                    'all-MiniLM-L6-v2',  # Fast, 384 dims
+                    'all-mpnet-base-v2',  # High quality, 768 dims
+                    'paraphrase-multilingual-MiniLM-L12-v2'  # Multilingual, 384 dims
+                ]
+            })
+
+        except Exception as e:
+            logger.error(f"Embedding status check failed: {e}")
+            return Response({
+                'error': 'Embedding status check failed',
+                'details': str(e)
+            }, status=500)
+
+
+class SemanticCategoryNetworkView(APIView):
+    """
+    Returns category network based on semantic similarity of posts using embeddings
+    Much more accurate than simple tag-based connections
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        Generate category network using semantic embeddings
+        """
+        try:
+            from django.db.models import Count
+            from ai_models.models import PostEmbedding
+            from collections import defaultdict
+            import numpy as np
+
+            # Get query parameters
+            similarity_threshold = float(request.GET.get('threshold', 0.6))
+            min_posts_per_category = int(request.GET.get('min_posts', 3))
+
+            # Get categories with enough posts and embeddings
+            categories = Category.objects.annotate(
+                post_count=Count('post', distinct=True)
+            ).filter(
+                post_count__gte=min_posts_per_category
+            )
+
+            if len(categories) < 2:
+                return Response({
+                    'nodes': [],
+                    'edges': [],
+                    'stats': {'message': 'Not enough categories with embeddings for semantic analysis'}
+                })
+
+            # Create nodes
+            nodes = []
+            category_embeddings = {}
+
+            for category in categories:
+                # Get all embeddings for posts in this category
+                embeddings = PostEmbedding.objects.filter(
+                    post__primary_category=category
+                ).select_related('post')
+
+                if embeddings.count() < min_posts_per_category:
+                    continue
+
+                # Calculate category's average embedding
+                embedding_vectors = []
+                for emb in embeddings:
+                    embedding_vectors.append(np.array(emb.embedding_vector, dtype=np.float32))
+
+                if embedding_vectors:
+                    # Average embedding represents category's semantic center
+                    avg_embedding = np.mean(embedding_vectors, axis=0)
+                    category_embeddings[category.id] = avg_embedding
+
+                    nodes.append({
+                        'id': category.id,
+                        'label': category.name,
+                        'title': f"{category.name}\\n{category.description}\\nPosts: {category.post_count}\\nSemantic center of {len(embedding_vectors)} posts",
+                        'value': category.post_count,
+                        'group': 'semantic_category'
+                    })
+
+            # Create semantic edges based on embedding similarity
+            edges = []
+            edge_weights = defaultdict(float)
+
+            categories_list = list(category_embeddings.keys())
+            for i, cat1_id in enumerate(categories_list):
+                for cat2_id in categories_list[i+1:]:
+                    # Calculate cosine similarity between category embeddings
+                    emb1 = category_embeddings[cat1_id]
+                    emb2 = category_embeddings[cat2_id]
+
+                    # Cosine similarity
+                    dot_product = np.dot(emb1, emb2)
+                    norm_product = np.linalg.norm(emb1) * np.linalg.norm(emb2)
+                    similarity = float(dot_product / norm_product) if norm_product > 0 else 0.0
+
+                    if similarity >= similarity_threshold:
+                        edges.append({
+                            'from': cat1_id,
+                            'to': cat2_id,
+                            'value': similarity,
+                            'title': f"Semantic similarity: {similarity:.3f}",
+                            'width': min(similarity * 10, 8),  # Scale for visualization
+                            'color': {
+                                'color': '#2ecc71' if similarity > 0.8 else '#3498db' if similarity > 0.7 else '#95a5a6'
+                            }
+                        })
+
+            return Response({
+                'nodes': nodes,
+                'edges': edges,
+                'stats': {
+                    'total_categories': len(nodes),
+                    'semantic_connections': len(edges),
+                    'similarity_threshold': similarity_threshold,
+                    'min_posts_per_category': min_posts_per_category,
+                    'avg_similarity': np.mean([edge['value'] for edge in edges]) if edges else 0,
+                    'method': 'semantic_embeddings'
+                }
+            })
+
+        except Exception as e:
+            logger.error(f"Semantic category network generation failed: {e}")
+            return Response({
+                'error': 'Semantic analysis failed',
+                'details': str(e)
+            }, status=500)
+
+
+class AutoCategorizationView(APIView):
+    """
+    Auto-categorization using semantic analysis
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        """
+        Auto-categorize posts or suggest categories
+
+        POST body:
+        {
+            "action": "suggest|assign|batch",
+            "post_id": 123,
+            "post_ids": [1, 2, 3],  // For batch processing
+            "title": "Post title",  // For suggestion without existing post
+            "content": "Post content",
+            "similarity_threshold": 0.75,
+            "dry_run": true  // For batch action
+        }
+        """
+        try:
+            from gnn_models.auto_categorization import auto_categorization_engine
+
+            data = request.data
+            action = data.get('action', 'suggest')
+
+            if action == 'suggest':
+                # Suggest categories for text or existing post
+                post_id = data.get('post_id')
+                title = data.get('title', '')
+                content = data.get('content', '')
+                threshold = float(data.get('similarity_threshold', 0.7))
+
+                if post_id:
+                    suggestions = auto_categorization_engine.suggest_categories_for_post(
+                        post_id=post_id,
+                        similarity_threshold=threshold
+                    )
+                elif title or content:
+                    suggestions = auto_categorization_engine.suggest_categories_for_text(
+                        title=title,
+                        content=content,
+                        similarity_threshold=threshold
+                    )
+                else:
+                    return Response({
+                        'error': 'Either post_id or title/content required for suggestions'
+                    }, status=400)
+
+                return Response({
+                    'action': 'suggest',
+                    'suggestions': suggestions,
+                    'total_suggestions': len(suggestions)
+                })
+
+            elif action == 'assign':
+                # Auto-assign categories to a post
+                post_id = data.get('post_id')
+                if not post_id:
+                    return Response({
+                        'error': 'post_id required for assignment'
+                    }, status=400)
+
+                threshold = float(data.get('similarity_threshold', 0.8))
+                result = auto_categorization_engine.auto_assign_categories(
+                    post_id=post_id,
+                    similarity_threshold=threshold
+                )
+
+                return Response({
+                    'action': 'assign',
+                    'result': result
+                })
+
+            elif action == 'batch':
+                # Batch auto-categorization
+                post_ids = data.get('post_ids')
+                threshold = float(data.get('similarity_threshold', 0.75))
+                dry_run = data.get('dry_run', True)
+
+                result = auto_categorization_engine.batch_auto_categorize(
+                    post_ids=post_ids,
+                    similarity_threshold=threshold,
+                    dry_run=dry_run
+                )
+
+                return Response({
+                    'action': 'batch',
+                    'result': result,
+                    'dry_run': dry_run
+                })
+
+            else:
+                return Response({
+                    'error': f'Unknown action: {action}. Use: suggest, assign, or batch'
+                }, status=400)
+
+        except Exception as e:
+            logger.error(f"Auto-categorization failed: {e}")
+            return Response({
+                'error': 'Auto-categorization failed',
+                'details': str(e)
+            }, status=500)
+
+    def get(self, request):
+        """
+        Get auto-categorization system status and stats
+        """
+        try:
+            from gnn_models.auto_categorization import auto_categorization_engine
+
+            stats = auto_categorization_engine.get_categorization_stats()
+
+            return Response({
+                'auto_categorization_stats': stats,
+                'available_actions': ['suggest', 'assign', 'batch'],
+                'default_thresholds': {
+                    'suggestion': 0.7,
+                    'assignment': 0.8,
+                    'batch': 0.75
+                }
+            })
+
+        except Exception as e:
+            logger.error(f"Auto-categorization stats failed: {e}")
+            return Response({
+                'error': 'Stats retrieval failed',
+                'details': str(e)
+            }, status=500)

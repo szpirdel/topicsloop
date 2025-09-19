@@ -16,3 +16,7 @@ torchvision>=0.15.0
 torchaudio>=2.0.0
 torch-geometric>=2.3.0
 # Note: torch-scatter, torch-sparse, etc. will be installed automatically by torch-geometric
+
+# Sentence Transformers for semantic embeddings
+sentence-transformers>=2.2.0
+transformers>=4.21.0

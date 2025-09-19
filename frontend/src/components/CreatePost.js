@@ -89,100 +89,124 @@ const CreatePost = () => {
     });
   };
 
-  if (loading) return <div>Loading form...</div>;
+  if (loading) return (
+    <div className="content-container">
+      <div className="loading-spinner">Loading form...</div>
+    </div>
+  );
 
   return (
-    <div style={{ maxWidth: '600px', margin: '0 auto', padding: '20px' }}>
-      <h2>Create New Post</h2>
-      
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: '20px' }}>
-          <label>Title:</label>
-          <input
-            type="text"
-            name="title"
-            value={formData.title}
-            onChange={handleInputChange}
-            style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-            required
-          />
-        </div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <label>Content:</label>
-          <textarea
-            name="content"
-            value={formData.content}
-            onChange={handleInputChange}
-            rows="6"
-            style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-            required
-          />
-        </div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <label>Primary Category:</label>
-          <select
-            value={formData.primary_category}
-            onChange={(e) => handleCategoryChange(e.target.value)}
-            style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-            required
-          >
-            <option value="">Select primary category</option>
-            {categories.map(cat => (
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <label>Additional Categories:</label>
-          <div style={{ marginTop: '5px' }}>
-            {categories.map(cat => (
-              <label key={cat.id} style={{ display: 'block', margin: '5px 0' }}>
+    <div className="content-container">
+      <div className="d-flex justify-content-center">
+        <div className="card" style={{ maxWidth: '700px', width: '100%' }}>
+          <div className="card-title">Create New Post</div>
+          <div className="card-content">
+            <form onSubmit={handleSubmit}>
+              <div className="form-group">
+                <label className="form-label">Title:</label>
                 <input
-                  type="checkbox"
-                  checked={formData.additional_categories.includes(cat.id)}
-                  onChange={() => handleCategoryChange(cat.id, true)}
-                  style={{ marginRight: '8px' }}
+                  type="text"
+                  name="title"
+                  className="form-input"
+                  value={formData.title}
+                  onChange={handleInputChange}
+                  placeholder="Enter a compelling title"
+                  required
                 />
-                {cat.name}
-              </label>
-            ))}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Content:</label>
+                <textarea
+                  name="content"
+                  className="form-textarea"
+                  value={formData.content}
+                  onChange={handleInputChange}
+                  rows="8"
+                  placeholder="Share your knowledge and insights..."
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Primary Category:</label>
+                <select
+                  className="form-select"
+                  value={formData.primary_category}
+                  onChange={(e) => handleCategoryChange(e.target.value)}
+                  required
+                >
+                  <option value="">Select primary category</option>
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Additional Categories:</label>
+                <div className="card" style={{ padding: '1rem', backgroundColor: '#f8f9fa' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem' }}>
+                    {categories.map(cat => (
+                      <label key={cat.id} className="d-flex align-items-center" style={{ cursor: 'pointer', padding: '0.25rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={formData.additional_categories.includes(cat.id)}
+                          onChange={() => handleCategoryChange(cat.id, true)}
+                          style={{ marginRight: '0.5rem' }}
+                        />
+                        <span className="category-badge" style={{ fontSize: '0.8rem' }}>
+                          {cat.name}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Tags:</label>
+                <div className="card" style={{ padding: '1rem', backgroundColor: '#f8f9fa' }}>
+                  <div className="tag-list">
+                    {tags.map(tag => (
+                      <label key={tag.id} className="d-flex align-items-center" style={{ cursor: 'pointer', marginRight: '1rem', marginBottom: '0.5rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={formData.tags.includes(tag.id)}
+                          onChange={() => handleTagChange(tag.id)}
+                          style={{ marginRight: '0.5rem' }}
+                        />
+                        <span className="tag-badge">
+                          #{tag.name}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="d-flex gap-2">
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
+                  Create Post
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setFormData({
+                    title: '',
+                    content: '',
+                    primary_category: '',
+                    additional_categories: [],
+                    tags: []
+                  })}
+                >
+                  Clear
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <label>Tags:</label>
-          <div style={{ marginTop: '5px' }}>
-            {tags.map(tag => (
-              <label key={tag.id} style={{ display: 'inline-block', margin: '5px 10px 5px 0' }}>
-                <input
-                  type="checkbox"
-                  checked={formData.tags.includes(tag.id)}
-                  onChange={() => handleTagChange(tag.id)}
-                  style={{ marginRight: '5px' }}
-                />
-                #{tag.name}
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <button 
-          type="submit"
-          style={{ 
-            padding: '10px 20px', 
-            backgroundColor: '#007bff', 
-            color: 'white', 
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer'
-          }}
-        >
-          Create Post
-        </button>
-      </form>
+      </div>
     </div>
   );
 };
