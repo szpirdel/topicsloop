@@ -1,16 +1,131 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { fetchPosts, fetchUserProfile } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import PostCard from './PostCard';
+import Pagination from './Pagination';
+
+// Search Component for Posts Page
+const PostsSearchComponent = () => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Initialize with current search query from URL
+  useEffect(() => {
+    const currentSearch = searchParams.get('search') || '';
+    setSearchQuery(currentSearch);
+  }, [searchParams]);
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    const newSearchParams = new URLSearchParams();
+
+    if (searchQuery.trim()) {
+      newSearchParams.set('search', searchQuery.trim());
+    }
+
+    // Navigate to new URL (this will reset to page 1)
+    navigate(`/posts?${newSearchParams.toString()}`);
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    navigate('/posts');
+  };
+
+  return (
+    <div className="posts-search-container" style={{
+      marginBottom: '2rem',
+      padding: '1.5rem',
+      backgroundColor: '#f8f9fa',
+      borderRadius: '8px',
+      border: '1px solid #e9ecef'
+    }}>
+      <form onSubmit={handleSearch} style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.75rem',
+        maxWidth: '600px',
+        margin: '0 auto'
+      }}>
+        <input
+          type="text"
+          placeholder="Search posts by title or content..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{
+            padding: '0.75rem 1rem',
+            border: '2px solid #dee2e6',
+            borderRadius: '8px',
+            fontSize: '1rem',
+            flex: 1,
+            outline: 'none',
+            transition: 'border-color 0.2s ease'
+          }}
+          onFocus={(e) => e.target.style.borderColor = '#007bff'}
+          onBlur={(e) => e.target.style.borderColor = '#dee2e6'}
+        />
+        <button
+          type="submit"
+          style={{
+            padding: '0.75rem 1.5rem',
+            backgroundColor: '#007bff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '1rem',
+            fontWeight: '500',
+            transition: 'background-color 0.2s ease'
+          }}
+          onMouseOver={(e) => e.target.style.backgroundColor = '#0056b3'}
+          onMouseOut={(e) => e.target.style.backgroundColor = '#007bff'}
+        >
+          🔍 Search
+        </button>
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={handleClearSearch}
+            style={{
+              padding: '0.75rem 1rem',
+              backgroundColor: '#6c757d',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              transition: 'background-color 0.2s ease'
+            }}
+            onMouseOver={(e) => e.target.style.backgroundColor = '#545b62'}
+            onMouseOut={(e) => e.target.style.backgroundColor = '#6c757d'}
+          >
+            ✕ Clear
+          </button>
+        )}
+      </form>
+    </div>
+  );
+};
 
 const PostList = () => {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [posts, setPosts] = useState([]);
+  const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [showAll, setShowAll] = useState(false);
   const { isAuthenticated } = useAuth();
+
+  // Get search query from URL
+  const searchQuery = searchParams.get('search') || '';
+  const categoryFilter = searchParams.get('category') || '';
+  const currentPage = parseInt(searchParams.get('page')) || 1;
+  const pageSize = parseInt(searchParams.get('page_size')) || 10;
 
   // Load user profile and favorite categories
   useEffect(() => {
@@ -37,11 +152,26 @@ const PostList = () => {
       setLoading(true);
       try {
         const filters = {
+          // URL search parameters
+          search: searchQuery,
+          category: categoryFilter,
+          page: currentPage,
+          page_size: pageSize,
+          // Always respect user's category selections (even during search)
           categories: selectedCategories,
           showAll: showAll
         };
+
         const data = await fetchPosts(filters);
-        setPosts(data);
+        // Handle new response structure with posts array and pagination
+        if (data.posts) {
+          setPosts(data.posts);
+          setPagination(data.pagination);
+        } else {
+          // Fallback for old response structure
+          setPosts(data);
+          setPagination(null);
+        }
       } catch (err) {
         setError('Failed to load posts');
         console.error('Error fetching posts:', err);
@@ -51,7 +181,7 @@ const PostList = () => {
     };
 
     loadPosts();
-  }, [selectedCategories, showAll]);
+  }, [selectedCategories, showAll, searchQuery, categoryFilter, currentPage, pageSize]);
 
   if (loading) return (
     <div className="content-container">
@@ -97,16 +227,53 @@ const PostList = () => {
     setShowAll(!showAll);
   };
 
+  // Handle pagination page change
+  const handlePageChange = (newFilters) => {
+    const newSearchParams = new URLSearchParams();
+
+    // Preserve existing search/category filters
+    if (searchQuery) newSearchParams.set('search', searchQuery);
+    if (categoryFilter) newSearchParams.set('category', categoryFilter);
+
+    // Add pagination
+    if (newFilters.page) newSearchParams.set('page', newFilters.page);
+    if (newFilters.page_size && newFilters.page_size !== 10) {
+      newSearchParams.set('page_size', newFilters.page_size);
+    }
+
+    // Navigate to new URL
+    navigate(`/posts?${newSearchParams.toString()}`);
+  };
+
   return (
     <div className="content-container">
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h1 style={{ color: '#2c3e50', margin: 0 }}>
-          {showAll ? 'All Posts' : 'Posts from Your Interests'}
+          {searchQuery ? `Search Results for "${searchQuery}"` :
+           categoryFilter ? 'Filtered Posts' :
+           showAll ? 'All Posts' :
+           isAuthenticated ? 'Posts Based on Your Interests' : 'Posts Based on Your Interests (Log in to Personalize)'}
         </h1>
         <div style={{ color: '#6c757d', fontSize: '0.9rem' }}>
-          {posts.length} post{posts.length !== 1 ? 's' : ''} found
+          {pagination ?
+            `${pagination.total_count} post${pagination.total_count !== 1 ? 's' : ''} found` :
+            `${posts.length} post${posts.length !== 1 ? 's' : ''} found`
+          }
+          {pagination && pagination.total_count > pagination.page_size && (
+            <span style={{ marginLeft: '1rem', color: '#666' }}>
+              (showing page {pagination.current_page} of {pagination.total_pages})
+            </span>
+          )}
+          {searchQuery && (
+            <span style={{ marginLeft: '1rem', color: '#3498db' }}>
+              🔍 "{searchQuery}"
+            </span>
+          )}
         </div>
       </div>
+
+      {/* Search Component positioned right after the title */}
+      <PostsSearchComponent />
 
       {/* Filter Panel - only show if user is authenticated and has favorite categories */}
       {isAuthenticated && userProfile?.favorite_categories?.length > 0 && (
@@ -213,11 +380,24 @@ const PostList = () => {
           </p>
         </div>
       ) : (
-        <div className="post-grid">
-          {posts.map(post => (
-            <PostCard key={post.id} post={post} onPostDeleted={handlePostDeleted} />
-          ))}
-        </div>
+        <>
+          <div className="post-grid">
+            {posts.map(post => (
+              <PostCard key={post.id} post={post} onPostDeleted={handlePostDeleted} />
+            ))}
+          </div>
+
+          {/* Pagination Component */}
+          <Pagination
+            pagination={pagination}
+            onPageChange={handlePageChange}
+            currentFilters={{
+              search: searchQuery,
+              category: categoryFilter,
+              page_size: pageSize
+            }}
+          />
+        </>
       )}
     </div>
   );

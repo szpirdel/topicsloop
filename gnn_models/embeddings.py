@@ -157,40 +157,54 @@ class EmbeddingManager:
             # Last resort: random embeddings
             return np.random.normal(0, 0.1, (len(texts), 384))
 
-    def generate_post_embedding(self, title: str, content: str, category: str = "", tags: List[str] = None) -> np.ndarray:
+    def generate_post_embedding(self, title: str, content: str, category: str = "", tags: List[str] = None, category_path: str = "") -> np.ndarray:
         """
-        Generate embedding for a single post
+        Generate embedding for a single post with hierarchical category context
 
         Args:
             title: Post title
             content: Post content
             category: Post category name
             tags: List of tag names
+            category_path: Full hierarchical category path (e.g., "AI > Machine Learning")
 
         Returns:
             Post embedding vector
         """
-        # Combine post information into meaningful text
-        combined_text = self._combine_post_text(title, content, category, tags or [])
+        # Combine post information into meaningful text with hierarchical context
+        combined_text = self._combine_post_text(title, content, category, tags or [], category_path)
 
         embeddings = self.encode_texts([combined_text])
         return embeddings[0]
 
-    def generate_category_embedding(self, name: str, description: str = "") -> np.ndarray:
+    def generate_category_embedding(self, name: str, description: str = "", parent_name: str = "", level: int = 0) -> np.ndarray:
         """
-        Generate embedding for a category
+        Generate embedding for a category with hierarchical context
 
         Args:
             name: Category name
             description: Category description
+            parent_name: Parent category name (for subcategories)
+            level: Category level (0=main, 1=sub, etc.)
 
         Returns:
             Category embedding vector
         """
-        # Combine category name and description
+        # Build hierarchical context
         combined_text = f"{name}"
+
         if description:
             combined_text += f" {description}"
+
+        # Add hierarchical context for subcategories
+        if parent_name and level > 0:
+            combined_text = f"{parent_name} {name} {combined_text}"
+
+        # Add level indicator for better semantic understanding
+        if level > 0:
+            combined_text += f" subcategory level {level}"
+        else:
+            combined_text += " main category"
 
         embeddings = self.encode_texts([combined_text])
         return embeddings[0]
@@ -220,8 +234,8 @@ class EmbeddingManager:
         embeddings = self.encode_texts([combined_text])
         return embeddings[0]
 
-    def _combine_post_text(self, title: str, content: str, category: str, tags: List[str]) -> str:
-        """Combine post components into meaningful text for embedding"""
+    def _combine_post_text(self, title: str, content: str, category: str, tags: List[str], category_path: str = "") -> str:
+        """Combine post components into meaningful text for embedding with hierarchical category context"""
         combined = []
 
         if title:
@@ -232,7 +246,10 @@ class EmbeddingManager:
             content_words = content.split()[:200]  # First 200 words
             combined.append(" ".join(content_words))
 
-        if category:
+        # Use full category path for hierarchical context
+        if category_path:
+            combined.append(f"Category: {category_path}")
+        elif category:
             combined.append(f"Category: {category}")
 
         if tags:

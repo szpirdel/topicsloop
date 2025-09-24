@@ -8,9 +8,67 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'email']
 
 class CategorySerializer(serializers.ModelSerializer):
+    parent_name = serializers.CharField(source='parent.name', read_only=True)
+    subcategories = serializers.SerializerMethodField()
+    full_path = serializers.CharField(source='get_full_path', read_only=True)
+    is_main_category = serializers.SerializerMethodField()
+    post_count = serializers.IntegerField(read_only=True)
+    subcategory_count = serializers.IntegerField(read_only=True)
+    has_subcategories = serializers.SerializerMethodField()
+
+    # For creating/updating hierarchical categories
+    parent_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+
     class Meta:
         model = Category
-        fields = ['id', 'name', 'description']
+        fields = [
+            'id', 'name', 'description', 'level', 'created_at',
+            'parent', 'parent_id', 'parent_name', 'subcategories',
+            'full_path', 'is_main_category', 'post_count', 'subcategory_count',
+            'has_subcategories'
+        ]
+
+    def get_subcategories(self, obj):
+        """Get direct subcategories (not recursive)"""
+        if obj.subcategories.exists():
+            return CategorySerializer(obj.subcategories.all(), many=True, context=self.context).data
+        return []
+
+    def get_is_main_category(self, obj):
+        """Check if this is a main category (level 0)"""
+        return obj.level == 0
+
+    def get_has_subcategories(self, obj):
+        """Check if category has subcategories"""
+        return getattr(obj, 'subcategory_count', 0) > 0 or obj.subcategories.exists()
+
+    def create(self, validated_data):
+        parent_id = validated_data.pop('parent_id', None)
+        if parent_id:
+            try:
+                parent = Category.objects.get(id=parent_id)
+                validated_data['parent'] = parent
+            except Category.DoesNotExist:
+                raise serializers.ValidationError({'parent_id': 'Invalid parent category ID'})
+
+        return Category.objects.create(**validated_data)
+
+    def update(self, instance, validated_data):
+        parent_id = validated_data.pop('parent_id', None)
+        if parent_id is not None:
+            if parent_id:
+                try:
+                    parent = Category.objects.get(id=parent_id)
+                    validated_data['parent'] = parent
+                except Category.DoesNotExist:
+                    raise serializers.ValidationError({'parent_id': 'Invalid parent category ID'})
+            else:
+                validated_data['parent'] = None
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
 
 class TagSerializer(serializers.ModelSerializer):
     class Meta:

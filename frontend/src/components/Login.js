@@ -43,8 +43,8 @@ const Login = () => {
   };
 
   return (
-    <div className="content-container">
-      <div className="d-flex justify-content-center">
+    <div className="content-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div style={{ width: '100%', maxWidth: '400px' }}>
         <div className="card" style={{ maxWidth: '400px', width: '100%' }}>
           <div className="card-title text-center">Welcome Back</div>
           <div className="card-content">

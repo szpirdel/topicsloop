@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import axios from '../api/axios';
 
 const PostCard = ({ post, onPostDeleted }) => {
   const navigate = useNavigate();
-  const [isExpanded, setIsExpanded] = useState(false);
 
   const getCurrentUserId = () => {
     const token = localStorage.getItem('access_token');
@@ -48,20 +47,16 @@ const PostCard = ({ post, onPostDeleted }) => {
     }
   };
 
-  const handleCardClick = (e) => {
-    // Don't expand if clicking on buttons
-    if (e.target.closest('button')) {
-      return;
-    }
-    setIsExpanded(!isExpanded);
+  const handleReadMore = () => {
+    navigate(`/posts/${post.id}`);
+  };
+
+  const handleShowOnGraph = () => {
+    navigate(`/visualizations?focus_post=${post.id}`);
   };
 
   return (
-    <div
-      className="post-card fade-in"
-      onClick={handleCardClick}
-      style={{ cursor: 'pointer' }}
-    >
+    <div className="post-card fade-in">
       <div className="post-card-header">
         <div className="d-flex justify-content-between align-items-flex-start">
           <h3 className="post-card-title">{post.title}</h3>
@@ -84,35 +79,99 @@ const PostCard = ({ post, onPostDeleted }) => {
 
       <div className="post-card-body">
         <div className="post-card-content">
-          {isExpanded ? post.content : (
-            post.content.length > 200 ? `${post.content.substring(0, 200)}...` : post.content
-          )}
+          {post.content.length > 300 ? `${post.content.substring(0, 300)}...` : post.content}
         </div>
 
-        {post.content.length > 200 && (
-          <div className="mt-2">
-            <span style={{
-              color: '#007bff',
-              fontSize: '0.9rem',
-              fontWeight: '500',
-              cursor: 'pointer'
-            }}>
-              {isExpanded ? 'Click to collapse' : 'Click to read more'}
-            </span>
+        {/* Action Buttons */}
+        <div className="mt-3 d-flex justify-content-between align-items-center gap-2">
+          <div className="d-flex gap-2" style={{ flex: 1 }}>
+            <Link
+              to={`/posts/${post.id}`}
+              className="btn"
+              style={{
+                textDecoration: 'none',
+                fontSize: '0.9rem',
+                padding: '0.5rem 1rem',
+                backgroundColor: '#28a745',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                fontWeight: '500',
+                transition: 'background-color 0.2s ease',
+                flex: 1
+              }}
+              onMouseEnter={(e) => e.target.style.backgroundColor = '#218838'}
+              onMouseLeave={(e) => e.target.style.backgroundColor = '#28a745'}
+            >
+              📖 Read Full Post
+            </Link>
+
+            <button
+              onClick={handleShowOnGraph}
+              className="btn"
+              style={{
+                fontSize: '0.9rem',
+                padding: '0.5rem 1rem',
+                backgroundColor: '#6f42c1',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                fontWeight: '500',
+                transition: 'background-color 0.2s ease',
+                flex: 1
+              }}
+              onMouseEnter={(e) => e.target.style.backgroundColor = '#5a2d91'}
+              onMouseLeave={(e) => e.target.style.backgroundColor = '#6f42c1'}
+            >
+              🧠 Show on Semantic Graph
+            </button>
           </div>
-        )}
+
+          <div style={{ fontSize: '0.8rem', color: '#6c757d' }}>
+            {post.content.length > 300 && (
+              <span>{post.content.length} characters</span>
+            )}
+          </div>
+        </div>
 
         <div className="mb-2 mt-3">
-          <span className="category-badge">
-            {post.primary_category?.name || 'No category'}
-          </span>
+          <div className="d-flex align-items-center mb-2">
+            <span style={{ fontSize: '0.8rem', color: '#6c757d', marginRight: '0.5rem' }}>
+              📁 Primary:
+            </span>
+            <span
+              className="category-badge"
+              title={post.primary_category?.full_path}
+              style={{
+                backgroundColor: post.primary_category?.level === 0 ? '#3498db' : '#2ecc71',
+                color: 'white'
+              }}
+            >
+              {post.primary_category?.full_path || post.primary_category?.name || 'No category'}
+            </span>
+          </div>
+
           {post.additional_categories.length > 0 && (
-            <div className="tag-list mt-1">
-              {post.additional_categories.map(cat => (
-                <span key={cat.id} className="tag-badge">
-                  {cat.name}
-                </span>
-              ))}
+            <div className="mb-2">
+              <span style={{ fontSize: '0.8rem', color: '#6c757d', marginRight: '0.5rem' }}>
+                📂 Additional:
+              </span>
+              <div className="tag-list" style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                {post.additional_categories.map(cat => (
+                  <span
+                    key={cat.id}
+                    className="tag-badge"
+                    title={cat.full_path}
+                    style={{
+                      backgroundColor: cat.level === 0 ? '#3498db' : '#2ecc71',
+                      color: 'white',
+                      fontSize: '0.75rem'
+                    }}
+                  >
+                    {cat.full_path || cat.name}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
         </div>

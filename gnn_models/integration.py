@@ -154,13 +154,23 @@ class GNNIntegrationManager:
             return 0.0
 
     def _calculate_basic_similarity(self, post1, post2) -> float:
-        """Calculate basic similarity between two posts"""
+        """Calculate basic similarity between two posts with hierarchical category context"""
         similarity_score = 0.0
 
-        # Category similarity (40% weight)
+        # Hierarchical category similarity (40% weight)
         if post1.primary_category and post2.primary_category:
-            if post1.primary_category == post2.primary_category:
+            cat1 = post1.primary_category
+            cat2 = post2.primary_category
+
+            # Exact category match
+            if cat1 == cat2:
                 similarity_score += 0.4
+            # Same parent category (subcategories of same main category)
+            elif cat1.get_root_category() == cat2.get_root_category():
+                similarity_score += 0.25
+            # One is subcategory of the other
+            elif cat1.is_subcategory_of(cat2) or cat2.is_subcategory_of(cat1):
+                similarity_score += 0.3
 
         # Tag similarity (30% weight)
         tags1 = set(tag.name for tag in post1.tags.all())
@@ -348,7 +358,7 @@ class GNNIntegrationManager:
 
     def generate_post_embedding(self, post_id: int) -> Optional[np.ndarray]:
         """
-        Generate semantic embedding for a post using sentence transformers
+        Generate semantic embedding for a post using sentence transformers with hierarchical category context
 
         Args:
             post_id: Post ID to generate embedding for
@@ -363,7 +373,7 @@ class GNNIntegrationManager:
         try:
             from blog.models import Post
 
-            post = Post.objects.select_related('primary_category', 'author').prefetch_related('tags').get(id=post_id)
+            post = Post.objects.select_related('primary_category__parent', 'author').prefetch_related('tags').get(id=post_id)
 
             # Get post components
             title = post.title or ""
@@ -371,10 +381,21 @@ class GNNIntegrationManager:
             category = post.primary_category.name if post.primary_category else ""
             tags = [tag.name for tag in post.tags.all()]
 
-            # Generate embedding
-            embedding = self.embedding_manager.generate_post_embedding(title, content, category, tags)
+            # Get hierarchical category path
+            category_path = ""
+            if post.primary_category:
+                category_path = post.primary_category.get_full_path()
 
-            logger.info(f"Generated embedding for post {post_id}: shape {embedding.shape}")
+            # Generate embedding with hierarchical context
+            embedding = self.embedding_manager.generate_post_embedding(
+                title=title,
+                content=content,
+                category=category,
+                tags=tags,
+                category_path=category_path
+            )
+
+            logger.info(f"Generated hierarchical embedding for post {post_id} (category: {category_path}): shape {embedding.shape}")
             return embedding
 
         except Exception as e:
@@ -383,7 +404,7 @@ class GNNIntegrationManager:
 
     def generate_category_embedding(self, category_id: int) -> Optional[np.ndarray]:
         """
-        Generate semantic embedding for a category
+        Generate semantic embedding for a category with hierarchical context
 
         Args:
             category_id: Category ID to generate embedding for
@@ -398,15 +419,21 @@ class GNNIntegrationManager:
         try:
             from blog.models import Category
 
-            category = Category.objects.get(id=category_id)
+            category = Category.objects.select_related('parent').get(id=category_id)
 
-            # Generate embedding
+            # Get hierarchical context
+            parent_name = category.parent.name if category.parent else ""
+            level = category.level
+
+            # Generate embedding with hierarchical context
             embedding = self.embedding_manager.generate_category_embedding(
                 name=category.name,
-                description=getattr(category, 'description', '')
+                description=getattr(category, 'description', ''),
+                parent_name=parent_name,
+                level=level
             )
 
-            logger.info(f"Generated embedding for category {category_id}: shape {embedding.shape}")
+            logger.info(f"Generated hierarchical embedding for category {category_id} (level {level}): shape {embedding.shape}")
             return embedding
 
         except Exception as e:
@@ -561,6 +588,144 @@ class GNNIntegrationManager:
         except Exception as e:
             logger.error(f"Failed to update embedding cache for post {post_id}: {e}")
             return False
+
+    def generate_hierarchical_category_network(self) -> Dict[str, Any]:
+        """
+        Generate hierarchical category network data for visualization
+        Takes into account parent-child relationships and semantic similarities
+
+        Returns:
+            Network data with hierarchical structure and semantic edges
+        """
+        try:
+            from blog.models import Category
+            from collections import defaultdict
+            import numpy as np
+
+            # Get all categories with their hierarchical relationships
+            categories = Category.objects.select_related('parent').prefetch_related('subcategories').all()
+
+            nodes = []
+            edges = []
+            hierarchical_edges = []
+            semantic_edges = []
+
+            # Create nodes with hierarchical information
+            for category in categories:
+                node_data = {
+                    'id': category.id,
+                    'label': category.name,
+                    'title': f"{category.get_full_path()}\nLevel: {category.level}\nDescription: {category.description or 'No description'}",
+                    'level': category.level,
+                    'group': f'level_{category.level}',
+                    'color': self._get_level_color(category.level),
+                    'size': 30 - (category.level * 5),  # Main categories are larger
+                    'font': {'size': 16 - (category.level * 2)},
+                    'full_path': category.get_full_path()
+                }
+
+                # Add parent information for positioning
+                if category.parent:
+                    node_data['parent_id'] = category.parent.id
+
+                nodes.append(node_data)
+
+            # Create hierarchical edges (parent-child relationships)
+            for category in categories:
+                if category.parent:
+                    hierarchical_edges.append({
+                        'from': category.parent.id,
+                        'to': category.id,
+                        'color': '#34495e',
+                        'width': 3,
+                        'dashes': False,
+                        'arrows': {'to': {'enabled': True, 'scaleFactor': 0.8}},
+                        'title': f"Parent-child: {category.parent.name} → {category.name}",
+                        'type': 'hierarchical'
+                    })
+
+            # Generate semantic similarities between categories if embedding manager is available
+            if self.embedding_manager and self.embedding_manager.available:
+                logger.info("Generating semantic similarities for hierarchical categories")
+
+                category_embeddings = {}
+                for category in categories:
+                    embedding = self.generate_category_embedding(category.id)
+                    if embedding is not None:
+                        category_embeddings[category.id] = embedding
+
+                # Calculate semantic similarities
+                category_ids = list(category_embeddings.keys())
+                for i, cat1_id in enumerate(category_ids):
+                    for cat2_id in category_ids[i+1:]:
+                        # Skip if they have hierarchical relationship
+                        cat1 = Category.objects.get(id=cat1_id)
+                        cat2 = Category.objects.get(id=cat2_id)
+
+                        if (cat1.parent and cat1.parent.id == cat2_id) or \
+                           (cat2.parent and cat2.parent.id == cat1_id):
+                            continue
+
+                        similarity = self.calculate_semantic_similarity(
+                            category_embeddings[cat1_id],
+                            category_embeddings[cat2_id]
+                        )
+
+                        if similarity >= 0.6:  # Threshold for semantic connections
+                            semantic_edges.append({
+                                'from': cat1_id,
+                                'to': cat2_id,
+                                'color': self._get_similarity_color(similarity),
+                                'width': min(similarity * 4, 6),
+                                'dashes': [5, 5],  # Dashed lines for semantic connections
+                                'title': f"Semantic similarity: {similarity:.3f}\n{cat1.name} ↔ {cat2.name}",
+                                'type': 'semantic',
+                                'value': similarity
+                            })
+
+            # Combine all edges
+            edges = hierarchical_edges + semantic_edges
+
+            return {
+                'nodes': nodes,
+                'edges': edges,
+                'hierarchical_edges': len(hierarchical_edges),
+                'semantic_edges': len(semantic_edges),
+                'stats': {
+                    'total_categories': len(nodes),
+                    'main_categories': len([n for n in nodes if n['level'] == 0]),
+                    'subcategories': len([n for n in nodes if n['level'] > 0]),
+                    'hierarchical_connections': len(hierarchical_edges),
+                    'semantic_connections': len(semantic_edges),
+                    'embedding_manager_available': self.embedding_manager.available if self.embedding_manager else False
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to generate hierarchical category network: {e}")
+            return {
+                'nodes': [],
+                'edges': [],
+                'error': str(e)
+            }
+
+    def _get_level_color(self, level: int) -> str:
+        """Get color based on category level"""
+        colors = {
+            0: '#3498db',  # Blue for main categories
+            1: '#2ecc71',  # Green for subcategories
+            2: '#f39c12',  # Orange for sub-subcategories
+        }
+        return colors.get(level, '#95a5a6')  # Gray for deeper levels
+
+    def _get_similarity_color(self, similarity: float) -> str:
+        """Get color based on similarity strength"""
+        if similarity >= 0.8:
+            return '#e74c3c'  # Red for very high similarity
+        elif similarity >= 0.7:
+            return '#f39c12'  # Orange for high similarity
+        else:
+            return '#95a5a6'  # Gray for moderate similarity
 
 
 # Global instance

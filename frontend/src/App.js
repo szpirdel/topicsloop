@@ -1,24 +1,97 @@
 import './App.css';
-import React from "react";
-import { BrowserRouter as Router, Route, Routes, Link } from "react-router-dom";
+import React, { useState } from "react";
+import { BrowserRouter as Router, Route, Routes, Link, useNavigate } from "react-router-dom";
 import Login from "./components/Login";
 import Register from "./components/Register";
 import PostList from "./components/PostList";
+import PostDetail from "./components/PostDetail";
 import CreatePost from "./components/CreatePost";
 import EditPost from "./components/EditPost";
 import Profile from "./components/Profile";
 import Visualization from "./components/Visualization";
+import Categories from "./components/Categories";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
-// Navigation Component
+// Shared Search Component (for reuse on different pages)
+const SearchComponent = ({ placeholder = "Search posts...", className = "" }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const navigate = useNavigate();
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      navigate(`/posts?search=${encodeURIComponent(searchQuery.trim())}`);
+    }
+  };
+
+  return (
+    <div className={`search-container ${className}`} style={{
+      marginBottom: '2rem',
+      display: 'flex',
+      justifyContent: 'center',
+      width: '100%'
+    }}>
+      <form onSubmit={handleSearch} style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.75rem',
+        maxWidth: '500px',
+        width: '100%'
+      }}>
+        <input
+          type="text"
+          placeholder={placeholder}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{
+            padding: '0.75rem 1rem',
+            border: '2px solid #e9ecef',
+            borderRadius: '8px',
+            fontSize: '1rem',
+            flex: 1,
+            outline: 'none',
+            transition: 'border-color 0.2s ease',
+            ':focus': {
+              borderColor: '#007bff'
+            }
+          }}
+          onFocus={(e) => e.target.style.borderColor = '#007bff'}
+          onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
+        />
+        <button
+          type="submit"
+          style={{
+            padding: '0.75rem 1.5rem',
+            backgroundColor: '#007bff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '1rem',
+            fontWeight: '500',
+            transition: 'background-color 0.2s ease'
+          }}
+          onMouseOver={(e) => e.target.style.backgroundColor = '#0056b3'}
+          onMouseOut={(e) => e.target.style.backgroundColor = '#007bff'}
+        >
+          🔍 Search
+        </button>
+      </form>
+    </div>
+  );
+};
+
+// Navigation Component (without search bar)
 const Navigation = () => {
   const { isAuthenticated, userInfo, logout } = useAuth();
+
   return (
     <nav style={{
-      backgroundColor: '#2c3e50',
+      backgroundColor: 'white',
       padding: '1rem 2rem',
       marginBottom: '2rem',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+      borderBottom: '1px solid #e9ecef'
     }}>
       <div style={{
         display: 'flex',
@@ -30,7 +103,7 @@ const Navigation = () => {
         <Link
           to="/"
           style={{
-            color: '#ecf0f1',
+            color: '#2c3e50',
             textDecoration: 'none',
             fontSize: '1.5rem',
             fontWeight: 'bold'
@@ -40,14 +113,22 @@ const Navigation = () => {
         </Link>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          <Link to="/posts" style={navLinkStyle}>Posts</Link>
+          {/* Categories always visible */}
+          <Link to="/categories" style={navLinkStyle}>Categories</Link>
+
+          {/* Posts only for authenticated users */}
+          {isAuthenticated && (
+            <Link to="/posts" style={navLinkStyle}>Posts</Link>
+          )}
+
+          {/* Knowledge Map always visible */}
           <Link to="/visualizations" style={navLinkStyle}>Knowledge Map</Link>
 
           {isAuthenticated ? (
             <>
               <Link to="/create" style={navLinkStyle}>Create Post</Link>
               <Link to="/profile" style={navLinkStyle}>Profile</Link>
-              <span style={{ color: '#ecf0f1', fontSize: '0.9rem' }}>
+              <span style={{ color: '#6c757d', fontSize: '0.9rem' }}>
                 {userInfo?.username}
               </span>
               <button
@@ -78,11 +159,12 @@ const Navigation = () => {
 };
 
 const navLinkStyle = {
-  color: '#ecf0f1',
+  color: '#6c757d',
   textDecoration: 'none',
   padding: '0.5rem 1rem',
   borderRadius: '4px',
-  transition: 'background-color 0.3s',
+  transition: 'all 0.3s',
+  fontWeight: '500'
 };
 
 const HomePage = () => {
@@ -95,29 +177,91 @@ const HomePage = () => {
       padding: '2rem',
       textAlign: 'center'
     }}>
+      {/* Call-to-Action Section for non-authenticated users */}
+      {!isAuthenticated && (
+        <div style={{
+          marginBottom: '2rem',
+          padding: '2rem',
+          backgroundColor: '#f8f9fa',
+          borderRadius: '8px',
+          border: '2px solid #e9ecef'
+        }}>
+          <h2 style={{ color: '#2c3e50', marginBottom: '1rem', fontSize: '2rem' }}>
+            Join TopicsLoop Today
+          </h2>
+          <p style={{ color: '#6c757d', marginBottom: '1.5rem', fontSize: '1.1rem' }}>
+            Experience the future of content discovery and knowledge sharing
+          </p>
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link
+              to="/register"
+              style={{
+                padding: '0.75rem 2rem',
+                backgroundColor: '#007bff',
+                color: 'white',
+                textDecoration: 'none',
+                borderRadius: '5px',
+                fontWeight: 'bold',
+                fontSize: '1.1rem',
+                transition: 'background-color 0.3s ease'
+              }}
+              onMouseEnter={(e) => e.target.style.backgroundColor = '#0056b3'}
+              onMouseLeave={(e) => e.target.style.backgroundColor = '#007bff'}
+            >
+              Get Started
+            </Link>
+            <Link
+              to="/login"
+              style={{
+                padding: '0.75rem 2rem',
+                backgroundColor: 'transparent',
+                color: '#007bff',
+                textDecoration: 'none',
+                borderRadius: '5px',
+                border: '2px solid #007bff',
+                fontWeight: 'bold',
+                fontSize: '1.1rem',
+                transition: 'all 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.backgroundColor = '#007bff';
+                e.target.style.color = 'white';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.backgroundColor = 'transparent';
+                e.target.style.color = '#007bff';
+              }}
+            >
+              Sign In
+            </Link>
+          </div>
+        </div>
+      )}
+
+
       <div style={{
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         color: 'white',
-        padding: '4rem 2rem',
-        borderRadius: '10px',
+        padding: '2rem',
+        borderRadius: '8px',
         marginBottom: '2rem'
       }}>
         <h1 style={{
-          fontSize: '3rem',
-          marginBottom: '1rem',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
-        }}>
-          Welcome to TopicsLoop
-        </h1>
-        <p style={{
-          fontSize: '1.3rem',
-          marginBottom: '2rem',
-          opacity: 0.9
+          fontSize: '2.2rem',
+          marginBottom: '0.5rem',
+          fontWeight: '600'
         }}>
           AI-Powered Knowledge Discovery Platform
+        </h1>
+        <p style={{
+          fontSize: '1.1rem',
+          marginBottom: isAuthenticated ? '0.5rem' : '0',
+          opacity: 0.95
+        }}>
+          Explore connections, discover insights, share knowledge
         </p>
         {isAuthenticated && userInfo && (
-          <p style={{ fontSize: '1.1rem', opacity: 0.8 }}>
+          <p style={{ fontSize: '1rem', opacity: 0.9, marginTop: '0.5rem' }}>
             Hello, <strong>{userInfo.username}</strong>! Ready to explore?
           </p>
         )}
@@ -148,49 +292,6 @@ const HomePage = () => {
         )}
       </div>
 
-      {!isAuthenticated && (
-        <div style={{
-          marginTop: '3rem',
-          padding: '2rem',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '8px'
-        }}>
-          <h3 style={{ color: '#2c3e50', marginBottom: '1rem' }}>
-            Join TopicsLoop Today
-          </h3>
-          <p style={{ color: '#6c757d', marginBottom: '1.5rem' }}>
-            Experience the future of content discovery and knowledge sharing
-          </p>
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-            <Link
-              to="/register"
-              style={{
-                padding: '0.75rem 2rem',
-                backgroundColor: '#007bff',
-                color: 'white',
-                textDecoration: 'none',
-                borderRadius: '5px',
-                fontWeight: 'bold'
-              }}
-            >
-              Get Started
-            </Link>
-            <Link
-              to="/login"
-              style={{
-                padding: '0.75rem 2rem',
-                backgroundColor: 'transparent',
-                color: '#007bff',
-                textDecoration: 'none',
-                borderRadius: '5px',
-                border: '2px solid #007bff'
-              }}
-            >
-              Sign In
-            </Link>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -278,6 +379,11 @@ const App = () => {
             <PostList />
           </Layout>
         } />
+        <Route path="/posts/:id" element={
+          <Layout>
+            <PostDetail />
+          </Layout>
+        } />
         <Route path="/create" element={
           <Layout>
             <CreatePost />
@@ -296,6 +402,11 @@ const App = () => {
         <Route path="/visualizations" element={
           <Layout>
             <Visualization />
+          </Layout>
+        } />
+        <Route path="/categories" element={
+          <Layout>
+            <Categories />
           </Layout>
         } />
       </Routes>

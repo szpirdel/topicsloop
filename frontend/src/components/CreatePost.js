@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchCategories, fetchTags, createPost } from '../services/api';
+import { fetchCategories, fetchCategoryTree, fetchTags, createPost } from '../services/api';
 
 const CreatePost = () => {
   const [formData, setFormData] = useState({
@@ -11,17 +11,21 @@ const CreatePost = () => {
   });
   
   const [categories, setCategories] = useState([]);
+  const [categoryTree, setCategoryTree] = useState([]);
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState('tree'); // 'tree' or 'flat'
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [categoriesData, tagsData] = await Promise.all([
+        const [categoriesData, categoryTreeData, tagsData] = await Promise.all([
           fetchCategories(),
+          fetchCategoryTree(),
           fetchTags()
         ]);
         setCategories(categoriesData);
+        setCategoryTree(categoryTreeData.tree || []);
         setTags(tagsData);
       } catch (error) {
         console.error('Error loading form data:', error);
@@ -29,12 +33,19 @@ const CreatePost = () => {
         setLoading(false);
       }
     };
-    
+
     loadData();
   }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Debug: log form data before submission
+    console.log('Form data before submission:', formData);
+    console.log('Primary category type:', typeof formData.primary_category);
+    console.log('Additional categories:', formData.additional_categories);
+    console.log('Tags:', formData.tags);
+
     try {
       const newPost = await createPost(formData);
       console.log('Post created:', newPost);
@@ -49,7 +60,8 @@ const CreatePost = () => {
       });
     } catch (error) {
       console.error('Error creating post:', error);
-      alert('Error creating post. Please make sure you are logged in.');
+      console.error('Error details:', error.response?.data);
+      alert(`Error creating post: ${error.response?.data?.detail || error.message}. Please make sure you are logged in.`);
     }
   };
 
@@ -61,11 +73,14 @@ const CreatePost = () => {
   };
 
   const handleCategoryChange = (categoryId, isAdditional = false) => {
+    // Ensure categoryId is a number for consistency
+    const numericCategoryId = parseInt(categoryId);
+
     if (isAdditional) {
-      const newAdditional = formData.additional_categories.includes(categoryId)
-        ? formData.additional_categories.filter(id => id !== categoryId)
-        : [...formData.additional_categories, categoryId];
-      
+      const newAdditional = formData.additional_categories.includes(numericCategoryId)
+        ? formData.additional_categories.filter(id => id !== numericCategoryId)
+        : [...formData.additional_categories, numericCategoryId];
+
       setFormData({
         ...formData,
         additional_categories: newAdditional
@@ -73,20 +88,99 @@ const CreatePost = () => {
     } else {
       setFormData({
         ...formData,
-        primary_category: categoryId
+        primary_category: numericCategoryId
       });
     }
   };
 
   const handleTagChange = (tagId) => {
-    const newTags = formData.tags.includes(tagId)
-      ? formData.tags.filter(id => id !== tagId)
-      : [...formData.tags, tagId];
-    
+    // Ensure tagId is a number for consistency
+    const numericTagId = parseInt(tagId);
+
+    const newTags = formData.tags.includes(numericTagId)
+      ? formData.tags.filter(id => id !== numericTagId)
+      : [...formData.tags, numericTagId];
+
     setFormData({
       ...formData,
       tags: newTags
     });
+  };
+
+  // Helper function to render hierarchical category tree
+  const renderCategoryTree = (categoryList, isMainCategory = false) => {
+    return categoryList.map(category => (
+      <div key={category.id} style={{ marginBottom: '0.5rem' }}>
+        <label
+          className="d-flex align-items-center"
+          style={{
+            cursor: 'pointer',
+            padding: '0.5rem',
+            backgroundColor: formData.additional_categories.includes(category.id) ? '#e3f2fd' : '#f8f9fa',
+            border: `2px solid ${formData.additional_categories.includes(category.id) ? '#007bff' : '#e9ecef'}`,
+            borderRadius: '8px',
+            marginLeft: isMainCategory ? '0' : '1.5rem',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={formData.additional_categories.includes(category.id)}
+            onChange={() => handleCategoryChange(category.id, true)}
+            style={{ marginRight: '0.75rem' }}
+          />
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontWeight: category.level === 0 ? '600' : '500',
+              color: category.level === 0 ? '#2c3e50' : '#6c757d',
+              fontSize: category.level === 0 ? '0.9rem' : '0.8rem'
+            }}>
+              {category.level > 0 && '└─ '}
+              {category.name}
+            </div>
+            {category.description && (
+              <div style={{ fontSize: '0.7rem', color: '#6c757d', marginTop: '0.25rem' }}>
+                {category.description}
+              </div>
+            )}
+            {category.level > 0 && (
+              <div style={{ fontSize: '0.7rem', color: '#007bff' }}>
+                {category.full_path}
+              </div>
+            )}
+          </div>
+        </label>
+
+        {/* Render subcategories */}
+        {category.subcategories && category.subcategories.length > 0 &&
+          renderCategoryTree(category.subcategories, false)
+        }
+      </div>
+    ));
+  };
+
+  // Helper function to render flat category list
+  const renderFlatCategories = () => {
+    return categories.map(cat => (
+      <label key={cat.id} className="d-flex align-items-center" style={{ cursor: 'pointer', padding: '0.25rem' }}>
+        <input
+          type="checkbox"
+          checked={formData.additional_categories.includes(cat.id)}
+          onChange={() => handleCategoryChange(cat.id, true)}
+          style={{ marginRight: '0.5rem' }}
+        />
+        <div>
+          <span className="category-badge" style={{ fontSize: '0.8rem' }}>
+            {cat.full_path || cat.name}
+          </span>
+          {cat.description && (
+            <div style={{ fontSize: '0.7rem', color: '#6c757d' }}>
+              {cat.description}
+            </div>
+          )}
+        </div>
+      </label>
+    ));
   };
 
   if (loading) return (
@@ -138,29 +232,65 @@ const CreatePost = () => {
                 >
                   <option value="">Select primary category</option>
                   {categories.map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    <option key={cat.id} value={cat.id}>
+                      {cat.full_path || cat.name}
+                      {cat.level > 0 && ` (${cat.level === 1 ? 'Subcategory' : 'Sub-subcategory'})`}
+                    </option>
                   ))}
                 </select>
               </div>
 
               <div className="form-group">
-                <label className="form-label">Additional Categories:</label>
-                <div className="card" style={{ padding: '1rem', backgroundColor: '#f8f9fa' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem' }}>
-                    {categories.map(cat => (
-                      <label key={cat.id} className="d-flex align-items-center" style={{ cursor: 'pointer', padding: '0.25rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={formData.additional_categories.includes(cat.id)}
-                          onChange={() => handleCategoryChange(cat.id, true)}
-                          style={{ marginRight: '0.5rem' }}
-                        />
-                        <span className="category-badge" style={{ fontSize: '0.8rem' }}>
-                          {cat.name}
-                        </span>
-                      </label>
-                    ))}
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <label className="form-label">Additional Categories:</label>
+                  <div className="d-flex gap-2">
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${viewMode === 'tree' ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setViewMode('tree')}
+                      style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
+                    >
+                      📊 Tree View
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${viewMode === 'flat' ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setViewMode('flat')}
+                      style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
+                    >
+                      📋 List View
+                    </button>
                   </div>
+                </div>
+
+                <div className="card" style={{ padding: '1rem', backgroundColor: '#f8f9fa', maxHeight: '400px', overflowY: 'auto' }}>
+                  {viewMode === 'tree' ? (
+                    <div>
+                      {categoryTree.length > 0 ? (
+                        renderCategoryTree(categoryTree, true)
+                      ) : (
+                        <div style={{ textAlign: 'center', color: '#6c757d', padding: '2rem' }}>
+                          <p>No hierarchical categories available</p>
+                          <button
+                            type="button"
+                            onClick={() => setViewMode('flat')}
+                            className="btn btn-outline btn-sm"
+                          >
+                            Switch to List View
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '0.5rem' }}>
+                      {renderFlatCategories()}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-2" style={{ fontSize: '0.8rem', color: '#6c757d' }}>
+                  💡 <strong>Tree View:</strong> Shows hierarchical relationships (Main Category → Subcategory)<br/>
+                  💡 <strong>List View:</strong> Shows all categories in a simple grid layout
                 </div>
               </div>
 

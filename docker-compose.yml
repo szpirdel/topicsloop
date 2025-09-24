@@ -7,7 +7,7 @@ services:
     ports:
       - "8000:8000"
     networks:
-      - default  
+      - default
     volumes:
       - .:/app
     depends_on:
@@ -16,6 +16,16 @@ services:
       - DJANGO_SETTINGS_MODULE=topicsloop.settings
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
+      - SECRET_KEY=django-insecure-development-key-for-topicsloop-testing-only
+      - DEBUG=True
+      - DATABASE_NAME=topicsloop_db
+      - DATABASE_USER=postgres
+      - DATABASE_PASSWORD=sarbinowska4444
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - ALLOWED_HOSTS=localhost,127.0.0.1
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000
+      - CSRF_TRUSTED_ORIGINS=http://localhost:3000
 
   db:
     image: postgres:17
