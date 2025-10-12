@@ -1,22 +1,33 @@
-Django>=4.2
-psycopg2-binary
-djangorestframework
-django-cors-headers
-djangorestframework-simplejwt
-djoser
-python-dotenv
+# Django and Core Dependencies
+Django>=4.2,<5.0
+psycopg2-binary>=2.9.0
+djangorestframework>=3.14.0
+django-cors-headers>=4.0.0
+djangorestframework-simplejwt>=5.2.0
+djoser>=2.2.0
+python-dotenv>=1.0.0
 
-# AI/ML dependencies
-numpy>=1.21.0
-scikit-learn>=1.0.0
+# AI/ML Core Dependencies
+numpy>=1.21.0,<2.0.0
+scikit-learn>=1.0.0,<2.0.0
 
-# PyTorch and Graph Neural Networks
-torch>=2.0.0
-torchvision>=0.15.0
-torchaudio>=2.0.0
-torch-geometric>=2.3.0
-# Note: torch-scatter, torch-sparse, etc. will be installed automatically by torch-geometric
+# PyTorch and Deep Learning
+torch>=2.0.0,<3.0.0
+torchvision>=0.15.0,<1.0.0
+torchaudio>=2.0.0,<3.0.0
 
-# Sentence Transformers for semantic embeddings
-sentence-transformers>=2.2.0
-transformers>=4.21.0
+# Graph Neural Networks
+torch-geometric>=2.3.0,<3.0.0
+# Note: torch-scatter, torch-sparse, torch-cluster, torch-spline-conv
+# will be installed automatically by torch-geometric
+
+# Sentence Transformers for Semantic Embeddings
+sentence-transformers>=2.2.0,<3.0.0
+transformers>=4.21.0,<5.0.0
+
+# Optional: Uncomment for development
+# django-debug-toolbar>=4.0.0
+# ipython>=8.0.0
+# black>=23.0.0
+# flake8>=6.0.0
+# mypy>=1.0.0
