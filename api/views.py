@@ -9,6 +9,7 @@ from django.http import JsonResponse
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
 from django.shortcuts import get_object_or_404
+from django.db import models
 import logging
 
 logger = logging.getLogger(__name__)
@@ -220,6 +221,98 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
                 'main_categories': main_categories,
                 'total_posts': total_posts,
                 'showing_main_only': main_only
+            }
+        })
+
+    @action(detail=False, methods=['get'])
+    def tree(self, request):
+        """
+        Get hierarchical category tree structure
+
+        Query params:
+        - max_depth: Maximum depth to return (default: None = all levels)
+        - parent_id: Get tree starting from specific parent (default: None = roots only)
+        - include_empty: Include categories with 0 posts (default: false)
+        """
+        max_depth = request.query_params.get('max_depth')
+        parent_id = request.query_params.get('parent_id')
+        include_empty = request.query_params.get('include_empty', 'false').lower() == 'true'
+
+        if max_depth:
+            try:
+                max_depth = int(max_depth)
+            except ValueError:
+                max_depth = None
+
+        from django.db.models import Count
+
+        # Build queryset with annotations
+        queryset = Category.objects.annotate(
+            post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True),
+            subcategory_count=Count('subcategories', distinct=True)
+        ).select_related('parent').prefetch_related('subcategories')
+
+        # Filter by parent if specified
+        if parent_id:
+            try:
+                parent_id = int(parent_id)
+                queryset = queryset.filter(parent_id=parent_id)
+            except (ValueError, TypeError):
+                return Response({'error': 'Invalid parent_id'}, status=400)
+        else:
+            # Get root categories only
+            queryset = queryset.filter(parent__isnull=True)
+
+        # Filter empty categories if requested
+        if not include_empty:
+            queryset = queryset.filter(post_count__gt=0)
+
+        # Order by name
+        queryset = queryset.order_by('name')
+
+        def build_tree_node(category, current_depth=0):
+            """Recursively build tree structure"""
+            node = {
+                'id': category.id,
+                'name': category.name,
+                'description': category.description,
+                'level': category.level,
+                'post_count': category.post_count,
+                'subcategory_count': category.subcategory_count,
+                'full_path': category.get_full_path(),
+                'has_subcategories': category.subcategories.exists(),
+                'children': []
+            }
+
+            # Only recurse if we haven't hit max depth
+            if max_depth is None or current_depth < max_depth:
+                subcategories = category.subcategories.annotate(
+                    post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True),
+                    subcategory_count=Count('subcategories', distinct=True)
+                )
+
+                if not include_empty:
+                    subcategories = subcategories.filter(post_count__gt=0)
+
+                for subcat in subcategories.order_by('name'):
+                    node['children'].append(build_tree_node(subcat, current_depth + 1))
+
+            return node
+
+        # Build tree
+        tree = [build_tree_node(cat) for cat in queryset]
+
+        return Response({
+            'tree': tree,
+            'params': {
+                'max_depth': max_depth,
+                'parent_id': parent_id,
+                'include_empty': include_empty
+            },
+            'stats': {
+                'root_categories': len(tree),
+                'total_categories': Category.objects.count(),
+                'max_level': Category.objects.aggregate(max_level=models.Max('level'))['max_level'] or 0
             }
         })
 
@@ -1401,23 +1494,44 @@ class UnifiedCategoryNetworkView(APIView):
             nodes = []
             category_ids = []
 
+            # Color palette for root categories (same as unified view)
+            root_category_colors_palette = [
+                '#3498db',  # Blue
+                '#e74c3c',  # Red
+                '#2ecc71',  # Green
+                '#f39c12',  # Orange
+                '#9b59b6',  # Purple
+                '#1abc9c',  # Turquoise
+                '#e91e63',  # Pink
+                '#ff5722',  # Deep Orange
+                '#00bcd4',  # Cyan
+                '#8bc34a',  # Light Green
+            ]
+
+            # Build root category color map
+            root_category_to_color = {}
+            for idx, category in enumerate(categories):
+                root_category = category.get_root_category()
+                if root_category.id not in root_category_to_color:
+                    root_category_to_color[root_category.id] = root_category_colors_palette[
+                        len(root_category_to_color) % len(root_category_colors_palette)
+                    ]
+
             for category in categories:
                 # 🔍 Sprawdzamy czy można rozwinąć
                 has_subcategories = category.subcategories.exists()
 
-                # 🎨 Kolory: ulubione vs powiązane vs poziom
+                # 🎨 Get color from root category
+                root_category = category.get_root_category()
+                color = root_category_to_color.get(root_category.id, '#95a5a6')
+                node_type = f'level_{level}'
+
+                # Override for personalized view
                 if personalized and favorite_category_ids:
                     if category.id in favorite_category_ids:
-                        color = '#3498db'  # Niebieski dla ulubionych
                         node_type = 'favorite'
                     else:
-                        color = '#f39c12'  # Pomarańczowy dla powiązanych
                         node_type = 'connected'
-                else:
-                    # Standardowe kolory według poziomu
-                    colors = {0: '#3498db', 1: '#2ecc71', 2: '#f39c12'}
-                    color = colors.get(level, '#95a5a6')
-                    node_type = f'level_{level}'
 
                 nodes.append({
                     'id': category.id,
@@ -1800,9 +1914,11 @@ class PostNetworkView(APIView):
             similarity_threshold = float(request.GET.get('similarity_threshold', 0.7))
             max_posts = int(request.GET.get('max_posts', 20))
             max_connections = int(request.GET.get('max_connections', 5))
+            method = request.GET.get('method', 'fallback')  # 🚀 OPTIMIZATION: 'gnn' or 'fallback'
+            personalized = request.GET.get('personalized', 'false').lower() == 'true'
 
             logger.info(f"🎯 Post Network: focus={focus_post_id}, category={category_id}, "
-                       f"threshold={similarity_threshold}, max_posts={max_posts}")
+                       f"method={method}, threshold={similarity_threshold}, max_posts={max_posts}, personalized={personalized}")
 
             from gnn_models.integration import gnn_manager
             from django.db.models import Count, Q
@@ -1821,26 +1937,93 @@ class PostNetworkView(APIView):
                 category_ids.extend(focus_post.additional_categories.values_list('id', flat=True))
                 categories = Category.objects.filter(id__in=category_ids)
             else:
-                # Get main categories with most posts
-                categories = Category.objects.annotate(
-                    post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True)
-                ).filter(post_count__gte=2).order_by('-post_count')[:10]
+                # 🎯 PERSONALIZED FILTER: Use favorite categories if personalized mode is enabled
+                if personalized and request.user.is_authenticated:
+                    try:
+                        user_profile = request.user.profile
+                        favorite_categories = user_profile.favorite_categories.all()
+                        if favorite_categories.exists():
+                            # Use only favorite categories
+                            categories = favorite_categories.annotate(
+                                post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True)
+                            ).filter(post_count__gte=1)
+                            logger.info(f"✅ Personalized mode: Using {categories.count()} favorite categories")
+                        else:
+                            # No favorites set, fall back to default
+                            categories = Category.objects.annotate(
+                                post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True)
+                            ).filter(post_count__gte=2).order_by('-post_count')[:10]
+                            logger.info(f"⚠️ No favorite categories found, using default top categories")
+                    except Exception as e:
+                        logger.warning(f"❌ Failed to get user favorites: {e}")
+                        # Fall back to default
+                        categories = Category.objects.annotate(
+                            post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True)
+                        ).filter(post_count__gte=2).order_by('-post_count')[:10]
+                else:
+                    # Get main categories with most posts (default behavior)
+                    categories = Category.objects.annotate(
+                        post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True)
+                    ).filter(post_count__gte=2).order_by('-post_count')[:10]
 
-            # Create category nodes
+            # Color palette for categories - distinct, vibrant colors
+            category_colors = [
+                {'bg': '#3498db', 'border': '#2980b9'},  # Blue
+                {'bg': '#e74c3c', 'border': '#c0392b'},  # Red
+                {'bg': '#2ecc71', 'border': '#27ae60'},  # Green
+                {'bg': '#f39c12', 'border': '#e67e22'},  # Orange
+                {'bg': '#9b59b6', 'border': '#8e44ad'},  # Purple
+                {'bg': '#1abc9c', 'border': '#16a085'},  # Turquoise
+                {'bg': '#e91e63', 'border': '#c2185b'},  # Pink
+                {'bg': '#ff5722', 'border': '#e64a19'},  # Deep Orange
+                {'bg': '#00bcd4', 'border': '#0097a7'},  # Cyan
+                {'bg': '#8bc34a', 'border': '#689f38'},  # Light Green
+            ]
+
+            # Map category IDs to colors (including subcategories)
+            # Build map of root_category_id -> color for all categories
+            category_color_map = {}
+            root_category_colors = {}  # root_category_id -> color
+
+            # First pass: identify all unique root categories and assign them colors
+            root_categories_found = []
             for category in categories:
+                root_category = category.get_root_category()
+                if root_category.id not in root_category_colors:
+                    root_categories_found.append(root_category)
+                    root_category_colors[root_category.id] = category_colors[
+                        len(root_categories_found) - 1 % len(category_colors)
+                    ]
+
+            # Second pass: assign colors to all categories based on their root
+            for category in categories:
+                root_category = category.get_root_category()
+                # All categories (including subcategories) get their root's color
+                category_color_map[category.id] = root_category_colors[root_category.id]
+
+            # Create category nodes - VERY LARGE and prominent (75% bigger)
+            for category in categories:
+                color = category_color_map[category.id]
                 nodes.append({
                     'id': f'category_{category.id}',
                     'label': category.name,
                     'type': 'category',
+                    'category_id': category.id,  # Store category_id for posts to reference
                     'title': f'📂 {category.name}\n{category.description}',
                     'shape': 'dot',
-                    'size': 25,
+                    'size': 70,  # 75% bigger than 40 (was 40 → now 70)
                     'color': {
-                        'background': '#3498db',
-                        'border': '#2980b9'
+                        'background': color['bg'],
+                        'border': color['border']
                     },
-                    'font': {'size': 16},
-                    'physics': True
+                    'borderWidth': 5,  # Even thicker border
+                    'font': {
+                        'size': 20,  # Larger font (was 18)
+                        'face': 'arial',
+                        'bold': True
+                    },
+                    'physics': True,
+                    'mass': 5  # Heavier mass (was 3)
                 })
 
             # === 📄 KROK 2: POST NODES (jeśli włączone) ===
@@ -1852,7 +2035,9 @@ class PostNetworkView(APIView):
                     posts_query = posts_query.filter(
                         Q(primary_category_id=category_id) |
                         Q(additional_categories__id=category_id)
-                    ).distinct()
+                    ).distinct().order_by('-created_at')[:max_posts]
+                    posts = list(posts_query)
+                    logger.info(f"📊 Loaded {len(posts)} posts from category_id={category_id}")
                 elif focus_post_id:
                     # Get focus post + similar posts
                     focus_post = get_object_or_404(Post, id=focus_post_id)
@@ -1860,8 +2045,9 @@ class PostNetworkView(APIView):
                     # Start with focus post
                     focus_posts = [focus_post]
 
-                    # Add similar posts if embeddings available
-                    if gnn_manager and gnn_manager.embedding_manager and gnn_manager.embedding_manager.available:
+                    # Add similar posts if embeddings available AND method is 'gnn'
+                    if (method == 'gnn' and gnn_manager and gnn_manager.embedding_manager
+                        and gnn_manager.embedding_manager.available):
                         try:
                             similar_post_data = gnn_manager.find_similar_posts_by_embedding(
                                 post_id=focus_post.id,
@@ -1875,19 +2061,129 @@ class PostNetworkView(APIView):
                         except Exception as e:
                             logger.warning(f"Similarity search failed: {e}")
 
-                    posts_query = Post.objects.filter(id__in=[p.id for p in focus_posts])
+                    posts = focus_posts
+                    logger.info(f"📊 Loaded {len(posts)} posts for focus_post_id={focus_post_id}")
                 else:
-                    # Recent posts from all categories
-                    posts_query = posts_query.order_by('-created_at')[:max_posts]
+                    # 🎯 BALANCED DISTRIBUTION: Get posts from ALL visible categories
+                    # Ensure at least 2 posts per category, then distribute remaining slots
+                    posts_per_category = max(2, max_posts // len(categories)) if categories else max_posts
 
-                posts = list(posts_query[:max_posts])
+                    posts_dict = {}  # Use dict to prevent duplicates (key = post.id)
+                    category_post_counts = {}
 
-                # Create post nodes
+                    # Round 1: Get minimum posts from each category (at least 2)
+                    for category in categories:
+                        # Get recent posts from this category
+                        category_posts = Post.objects.filter(
+                            Q(primary_category=category) | Q(additional_categories=category)
+                        ).select_related('primary_category', 'author').distinct().order_by('-created_at')[:posts_per_category]
+
+                        added_count = 0
+                        for post in category_posts:
+                            if post.id not in posts_dict:  # Avoid duplicates
+                                posts_dict[post.id] = post
+                                added_count += 1
+
+                        category_post_counts[category.name] = added_count
+
+                    # Convert dict to list
+                    posts = list(posts_dict.values())
+
+                    # 🎯 PERSONALIZED MODE: Don't add posts from other categories
+                    # Only fill with additional posts if NOT in personalized mode
+                    if len(posts) < max_posts and not personalized:
+                        remaining = max_posts - len(posts)
+                        post_ids = list(posts_dict.keys())
+                        additional_posts = Post.objects.exclude(id__in=post_ids).select_related(
+                            'primary_category', 'author'
+                        ).order_by('-created_at')[:remaining]
+                        posts.extend(list(additional_posts))
+
+                    # Limit to max_posts
+                    posts = posts[:max_posts]
+
+                    if personalized:
+                        logger.info(f"📊 Personalized mode: Loaded {len(posts)} posts from {len(categories)} favorite categories: {category_post_counts}")
+                    else:
+                        logger.info(f"📊 Loaded {len(posts)} unique posts distributed across {len(categories)} categories: {category_post_counts}")
+
+                # Helper function to lighten color (for post nodes)
+                def lighten_color(hex_color, factor=0.3):
+                    """Lighten a hex color by factor (0-1)"""
+                    hex_color = hex_color.lstrip('#')
+                    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+                    r = int(r + (255 - r) * factor)
+                    g = int(g + (255 - g) * factor)
+                    b = int(b + (255 - b) * factor)
+                    return f'#{r:02x}{g:02x}{b:02x}'
+
+                # Group posts by their primary category for circular positioning
+                import math
+                posts_by_category = {}
+                for post in posts:
+                    if post.primary_category:
+                        cat_id = post.primary_category.id
+                        if cat_id not in posts_by_category:
+                            posts_by_category[cat_id] = []
+                        posts_by_category[cat_id].append(post)
+
+                # Track position index for each category
+                category_post_index = {}
+
+                # Create post nodes with circular positioning around categories
                 for post in posts:
                     # Determine if this is the focus post
                     is_focus = focus_post_id and str(post.id) == str(focus_post_id)
 
-                    nodes.append({
+                    # Calculate circular position around primary category
+                    x_pos = None
+                    y_pos = None
+                    if post.primary_category:
+                        cat_id = post.primary_category.id
+                        # Get index of this post within its category
+                        if cat_id not in category_post_index:
+                            category_post_index[cat_id] = 0
+
+                        post_index = category_post_index[cat_id]
+                        category_post_index[cat_id] += 1
+
+                        # Calculate total posts for this category
+                        total_posts_in_cat = len(posts_by_category.get(cat_id, []))
+
+                        if total_posts_in_cat > 0:
+                            # Circular distribution: angle = 360° / total_posts * index
+                            angle = (2 * math.pi * post_index) / total_posts_in_cat
+                            radius = 120  # Distance from category center
+
+                            # Calculate position (relative to category at 0,0)
+                            x_pos = radius * math.cos(angle)
+                            y_pos = radius * math.sin(angle)
+
+                    # Get color from primary category's ROOT category
+                    if post.primary_category:
+                        # Get root category to use its color
+                        root_category = post.primary_category.get_root_category()
+                        if root_category.id in root_category_colors:
+                            cat_color = root_category_colors[root_category.id]
+                        elif post.primary_category.id in category_color_map:
+                            cat_color = category_color_map[post.primary_category.id]
+                        else:
+                            cat_color = None
+
+                        if cat_color:
+                            # Use lighter shade of category color for posts
+                            post_bg = lighten_color(cat_color['bg'], 0.3)
+                            post_border = cat_color['bg']  # Use category bg as post border
+                        else:
+                            # Default gray for posts without category
+                            post_bg = '#95a5a6'
+                            post_border = '#7f8c8d'
+                    else:
+                        # Default gray for posts without category
+                        post_bg = '#95a5a6'
+                        post_border = '#7f8c8d'
+
+                    post_node = {
                         'id': f'post_{post.id}',
                         'label': post.title[:30] + ('...' if len(post.title) > 30 else ''),
                         'type': 'post',
@@ -1896,47 +2192,60 @@ class PostNetworkView(APIView):
                         'shape': 'box',
                         'size': 30 if is_focus else 20,
                         'color': {
-                            'background': '#e74c3c' if is_focus else '#e67e22',
-                            'border': '#c0392b' if is_focus else '#d35400'
+                            'background': post_bg,
+                            'border': post_border
                         },
-                        'font': {'size': 14, 'color': 'white'},
+                        'font': {'size': 14, 'color': '#2c3e50'},  # Dark text on light background
                         'physics': True,
-                        'is_focus': is_focus
-                    })
+                        'is_focus': is_focus,
+                        'mass': 2  # Add mass so posts repel each other
+                    }
+
+                    # Add initial circular position if calculated
+                    if x_pos is not None and y_pos is not None:
+                        post_node['x'] = x_pos
+                        post_node['y'] = y_pos
+
+                    nodes.append(post_node)
 
                 # === 🔗 KROK 3: POST-CATEGORY CONNECTIONS ===
-                # Connect posts to their categories
+                # Connect posts to their categories (avoid duplicates)
+                added_edges = set()  # Track added edges to prevent duplicates
+
                 for post in posts:
+                    # Collect all categories for this post (primary + additional)
+                    post_categories = {}  # category_id -> is_primary
+
                     # Primary category
                     if post.primary_category:
-                        cat_node_id = f'category_{post.primary_category.id}'
-                        if any(n['id'] == cat_node_id for n in nodes):
-                            edges.append({
-                                'id': f'post_{post.id}_to_cat_{post.primary_category.id}',
-                                'from': f'post_{post.id}',
-                                'to': cat_node_id,
-                                'title': 'Primary category',
-                                'color': {'color': '#95a5a6'},
-                                'width': 2,
-                                'dashes': [5, 5]  # Dashed line
-                            })
+                        post_categories[post.primary_category.id] = True
 
                     # Additional categories
                     for additional_cat in post.additional_categories.all():
-                        cat_node_id = f'category_{additional_cat.id}'
-                        if any(n['id'] == cat_node_id for n in nodes):
-                            edges.append({
-                                'id': f'post_{post.id}_to_cat_{additional_cat.id}',
-                                'from': f'post_{post.id}',
-                                'to': cat_node_id,
-                                'title': 'Additional category',
-                                'color': {'color': '#bdc3c7'},
-                                'width': 1,
-                                'dashes': [3, 3]  # Lighter dashed line
-                            })
+                        if additional_cat.id not in post_categories:  # Don't override primary
+                            post_categories[additional_cat.id] = False
+
+                    # Create edges for all categories
+                    for cat_id, is_primary in post_categories.items():
+                        edge_key = (post.id, cat_id)
+                        if edge_key not in added_edges:
+                            cat_node_id = f'category_{cat_id}'
+                            if any(n['id'] == cat_node_id for n in nodes):
+                                edges.append({
+                                    'id': f'post_{post.id}_to_cat_{cat_id}',
+                                    'from': f'post_{post.id}',
+                                    'to': cat_node_id,
+                                    'title': 'Primary category' if is_primary else 'Additional category',
+                                    'color': {'color': '#95a5a6' if is_primary else '#bdc3c7'},
+                                    'width': 2 if is_primary else 1,
+                                    'dashes': [5, 5] if is_primary else [3, 3]
+                                })
+                                added_edges.add(edge_key)
 
                 # === 🔗 KROK 4: POST-POST SIMILARITY CONNECTIONS ===
-                if gnn_manager and gnn_manager.embedding_manager and gnn_manager.embedding_manager.available:
+                # 🚀 OPTIMIZATION: Only use GNN for similarity connections when method='gnn'
+                if (method == 'gnn' and gnn_manager and gnn_manager.embedding_manager
+                    and gnn_manager.embedding_manager.available):
                     try:
                         # Create similarity connections between posts
                         post_pairs_checked = set()
@@ -2002,6 +2311,8 @@ class PostNetworkView(APIView):
                     'category_id': category_id,
                     'similarity_threshold': similarity_threshold,
                     'max_posts': max_posts,
+                    'method_used': method,  # 🚀 OPTIMIZATION: Track which method was requested
+                    'gnn_used': method == 'gnn',  # 🚀 OPTIMIZATION: Track if GNN was actually used
                     'embeddings_available': bool(gnn_manager and gnn_manager.embedding_manager and gnn_manager.embedding_manager.available)
                 }
             })

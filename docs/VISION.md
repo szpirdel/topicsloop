@@ -1,6 +1,6 @@
 # TopicsLoop - Product Vision
 
-**Created:** 2025-10-12
+**Last Updated:** 2025-10-13
 **Origin Story:** 5 years in the making
 **Status:** Pre-launch MVP Development
 
@@ -206,7 +206,7 @@ Think of TopicsLoop like Google Maps for knowledge:
 
 ## 📊 Success Vision
 
-### **6 Months from Launch**
+### **Early Stage**
 - 1,000 active users
 - 10,000+ posts across 100+ categories
 - 5+ levels deep in popular category trees
@@ -214,7 +214,7 @@ Think of TopicsLoop like Google Maps for knowledge:
 - 30% of users discover and follow new topics via map
 - NPS score: 40+
 
-### **1 Year from Launch**
+### **Growth Stage**
 - 10,000 active users
 - 100,000+ posts across 500+ categories
 - Active community contributions
@@ -222,7 +222,7 @@ Think of TopicsLoop like Google Maps for knowledge:
 - Featured in Product Hunt, Hacker News
 - First wave of "power users" emerge
 
-### **3 Years from Launch**
+### **Mature Stage**
 - 100,000+ active users
 - 1M+ posts
 - Known as "the structured Reddit" or "Reddit with a brain"
@@ -284,34 +284,34 @@ To maintain focus, we explicitly are NOT:
 
 ## 🛤️ Product Evolution Path
 
-### **Phase 0: Current** (Oct 2025)
+### **Phase 0: Current**
 - Basic hierarchical categories
 - Graph visualization exists but unclear purpose
 - User authentication and profiles
 - Post creation and browsing
 
-### **Phase 1: Foundation** (Nov-Dec 2025)
+### **Phase 1: Foundation**
 - **Focus:** Hierarchical UI excellence
 - Deep category trees
 - Breadcrumb navigation
 - Category pages
 - Feed with context
 
-### **Phase 2: Clarity** (Jan-Feb 2026)
+### **Phase 2: Clarity**
 - **Focus:** Graph purpose clarity
 - Contextual entry points
 - Connection explanations
 - Preview modals
 - Navigation improvements
 
-### **Phase 3: Polish** (Mar-Apr 2026)
+### **Phase 3: Polish**
 - **Focus:** Graph enhancements
 - Zoom-based disclosure
 - Performance optimization
 - Mobile optimization
 - Testing and refinement
 
-### **Phase 4: Growth** (May+ 2026)
+### **Phase 4: Growth**
 - **Focus:** User acquisition
 - SEO optimization
 - Content seeding

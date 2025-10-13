@@ -76,8 +76,8 @@ class Category(models.Model):
                 parent = parent.parent
 
             # Limit hierarchy depth (optional)
-            if self.parent.level >= 2:  # Max 3 levels (0, 1, 2)
-                raise ValidationError("Maximum category hierarchy depth is 3 levels")
+            if self.parent.level >= 9:  # Max 10 levels (0-9)
+                raise ValidationError("Maximum category hierarchy depth is 10 levels")
 
     class Meta:
         verbose_name_plural = "Categories"  # Django admin: "Categories" zamiast "Categorys"

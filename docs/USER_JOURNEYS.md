@@ -1,6 +1,6 @@
 # TopicsLoop - User Journeys & UX Design
 
-**Last Updated:** 2025-10-12
+**Last Updated:** 2025-10-13
 **Status:** Planning Phase
 **Purpose:** Define how users interact with TopicsLoop to build the right features
 
@@ -498,7 +498,7 @@ Based on founder vision (validated Oct 2025):
 
 ## 📋 Implementation Priority
 
-### **Phase 1: Core Hierarchical UI (Weeks 1-2)**
+### **Phase 1: Core Hierarchical UI**
 Focus: Make browsing and navigation excellent
 
 1. Breadcrumbs component (1-2 hours)
@@ -509,7 +509,7 @@ Focus: Make browsing and navigation excellent
 
 **Deliverable:** Users can navigate hierarchically with full context
 
-### **Phase 2: Graph Purpose Clarity (Week 3)**
+### **Phase 2: Graph Purpose Clarity**
 Focus: Make graph understandable and valuable
 
 1. Rename routes and labels (1 hour)
@@ -520,7 +520,7 @@ Focus: Make graph understandable and valuable
 
 **Deliverable:** Users understand when/why to use map
 
-### **Phase 3: Graph Enhancements (Week 4)**
+### **Phase 3: Graph Enhancements**
 Focus: Polish and advanced features
 
 1. Zoom-based progressive disclosure (8-10 hours)
@@ -582,6 +582,3 @@ Focus: Polish and advanced features
 1. Review and validate these journeys
 2. Create wireframes for Phase 1 components
 3. Start implementation with highest priority items
-
-**Last Updated:** 2025-10-12
-**Review Cadence:** Weekly during development

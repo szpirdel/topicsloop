@@ -11,6 +11,7 @@ class CategorySerializer(serializers.ModelSerializer):
     parent_name = serializers.CharField(source='parent.name', read_only=True)
     subcategories = serializers.SerializerMethodField()
     full_path = serializers.CharField(source='get_full_path', read_only=True)
+    path = serializers.SerializerMethodField()
     is_main_category = serializers.SerializerMethodField()
     post_count = serializers.IntegerField(read_only=True)
     subcategory_count = serializers.IntegerField(read_only=True)
@@ -24,7 +25,7 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'description', 'level', 'created_at',
             'parent', 'parent_id', 'parent_name', 'subcategories',
-            'full_path', 'is_main_category', 'post_count', 'subcategory_count',
+            'full_path', 'path', 'is_main_category', 'post_count', 'subcategory_count',
             'has_subcategories'
         ]
 
@@ -33,6 +34,19 @@ class CategorySerializer(serializers.ModelSerializer):
         if obj.subcategories.exists():
             return CategorySerializer(obj.subcategories.all(), many=True, context=self.context).data
         return []
+
+    def get_path(self, obj):
+        """Get full hierarchical path as array of objects"""
+        path = []
+        current = obj
+        while current:
+            path.insert(0, {
+                'id': current.id,
+                'name': current.name,
+                'level': current.level
+            })
+            current = current.parent
+        return path
 
     def get_is_main_category(self, obj):
         """Check if this is a main category (level 0)"""

@@ -1,8 +1,7 @@
 # Hierarchical UI Implementation Plan
 
-**Created:** 2025-10-12
+**Last Updated:** 2025-10-13
 **Status:** Ready to implement
-**Estimated Time:** 12-15 hours
 **Priority:** HIGH - Foundation for all future features
 
 ---
@@ -548,21 +547,21 @@ backend/
 
 ### **Rollout Plan**
 
-**Week 1: Backend + Core Components**
+**Phase 1: Backend + Core Components**
 - Implement API endpoints
 - Test with API client (Postman)
 - Create Breadcrumbs component
 - Create CategoryTree component
 - Integration testing
 
-**Week 2: Enhanced Pages**
+**Phase 2: Enhanced Pages**
 - Update CategoryPage
 - Update PostDetail
 - Update Feed with sidebar
 - End-to-end testing
 
-**Week 3: Polish + Optional Features**
-- Onboarding flow (if time)
+**Phase 3: Polish + Optional Features**
+- Onboarding flow (if desired)
 - Mobile optimization
 - Performance tuning
 - User testing

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from '../api/axios';
+import Breadcrumbs from './Breadcrumbs';
 
 const PostDetail = () => {
   const { id } = useParams();
@@ -92,16 +93,10 @@ const PostDetail = () => {
 
   return (
     <div className="content-container">
-      {/* Navigation Breadcrumb */}
-      <div className="mb-3">
-        <nav style={{ fontSize: '0.9rem', color: '#6c757d' }}>
-          <Link to="/posts" style={{ color: '#007bff', textDecoration: 'none' }}>
-            📚 All Posts
-          </Link>
-          <span style={{ margin: '0 0.5rem' }}>›</span>
-          <span>{post.title}</span>
-        </nav>
-      </div>
+      <Breadcrumbs 
+        path={post.primary_category?.path} 
+        currentPage={post.title}
+      />
 
       {/* Main Content Card */}
       <div className="card" style={{ maxWidth: '900px', margin: '0 auto' }}>
@@ -304,7 +299,21 @@ const PostDetail = () => {
               🔗 Share
             </button>
 
-            {/* Future: Add similar posts, comments, etc. */}
+            <button
+              className="btn"
+              onClick={() => navigate(`/visualizations?focus_post=${post.id}&find_similar=true`)}
+              style={{
+                backgroundColor: '#6f42c1',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '0.5rem 1rem',
+                fontSize: '0.9rem',
+                fontWeight: '500'
+              }}
+            >
+              🔍 Find Similar Posts
+            </button>
           </div>
         </div>
       </div>
