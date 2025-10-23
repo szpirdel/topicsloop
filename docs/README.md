@@ -1,6 +1,6 @@
 # TopicsLoop Documentation
 
-**Last Updated:** 2025-10-12
+**Last Updated:** 2025-10-15
 
 This folder contains strategic and planning documents for TopicsLoop development.
 
@@ -8,88 +8,75 @@ This folder contains strategic and planning documents for TopicsLoop development
 
 ## 📚 Document Index
 
-### **Strategic Documents**
+### **[PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md)** - Complete Product Strategy
+**Read this for the big picture!**
 
-#### [VISION.md](VISION.md) - Product Vision & Strategy
-**Read this first!**
-
-Defines the core vision, target users, and long-term goals for TopicsLoop.
-
-**Key Sections:**
-- The Big Idea: "Topic GPS for the Internet"
+This comprehensive document combines:
+- Product vision ("Topic GPS for the Internet")
+- Target users and personas
+- User journeys (The Feed Explorer, The Visual Explorer)
 - Core value propositions
-- Founding principles (Context First, Dual Navigation, AI as Enhancer)
+- Founding principles and design philosophy
+- Success metrics and anti-patterns
+- UI components needed
+- Implementation priorities
+
+**Sections include:**
+- The Big Idea & Problem/Solution
 - Competitive positioning
-- 5-year vision
-
-**Who should read:** Everyone involved in the project
-
----
-
-### **User Experience Documents**
-
-#### [USER_JOURNEYS.md](USER_JOURNEYS.md) - User Flow & Interaction Design
-Detailed user journey maps showing how users interact with the platform.
-
-**Key Sections:**
-- Primary Journey: The Feed Explorer (Maria's story)
-- Secondary Journey: The Visual Explorer (Alex's story)
-- Success metrics (engagement, navigation, content)
+- Primary & Secondary user journeys
+- Success metrics
 - Anti-patterns to avoid
-- Core UI components needed
+- Brand personality
+- Origin story and lessons learned
+- Long-term vision (5+ years)
 
-**Who should read:** Designers, frontend developers, product managers
+**Who should read:** Everyone involved in the project - this is our North Star
 
 ---
 
-### **Implementation Plans**
+### **[API.md](API.md)** - Complete API Documentation
+**Reference for all backend endpoints**
 
-#### [HIERARCHICAL_UI_PLAN.md](HIERARCHICAL_UI_PLAN.md) - Phase 1 Implementation Guide
-**Start here for development work!**
+Comprehensive API documentation covering:
+- Authentication (JWT tokens)
+- Posts API (CRUD, similar posts)
+- Categories API (flat list, tree structure, hierarchical paths)
+- AI Features API (auto-categorization, embeddings, recommendations)
+- Visualization API (network data for graphs)
+- User Management API (profiles, following)
+- Tags API
+- Error handling, rate limiting, pagination
 
-Detailed technical plan for implementing hierarchical navigation.
+**Sections include:**
+- All endpoint specifications
+- Request/response examples
+- Query parameters
+- Authentication requirements
+- Error responses
+- Performance tips
+- API changelog
 
-**Key Sections:**
-- Task breakdown with time estimates
-- Component specifications (Breadcrumbs, CategoryTree)
-- API requirements
-- Testing checklist
-- Performance considerations
-- Definition of done
-
-**Who should read:** Developers ready to build
+**Who should read:** Frontend developers, API consumers, backend developers
 
 ---
 
 ## 🗺️ How to Use These Docs
 
 ### **If you're new to the project:**
-1. Read [VISION.md](VISION.md) - Understand what we're building
-2. Read [USER_JOURNEYS.md](USER_JOURNEYS.md) - Understand the users
-3. Review [HIERARCHICAL_UI_PLAN.md](HIERARCHICAL_UI_PLAN.md) - See what we're building next
+1. Read [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) - Understand what we're building and why
+2. Review [API.md](API.md) - Understand the backend capabilities
+3. Check [../project_backlog.md](../project_backlog.md) - See what we're building next
 
 ### **If you're starting development:**
-1. Check [HIERARCHICAL_UI_PLAN.md](HIERARCHICAL_UI_PLAN.md) for current tasks
-2. Reference [USER_JOURNEYS.md](USER_JOURNEYS.md) for context
-3. Refer back to [VISION.md](VISION.md) when making design decisions
+1. Check [../project_backlog.md](../project_backlog.md) for current sprint tasks
+2. Reference [API.md](API.md) for endpoint specifications
+3. Refer back to [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) when making design decisions
 
 ### **If you're making product decisions:**
-1. Use [VISION.md](VISION.md) as North Star
-2. Validate against [USER_JOURNEYS.md](USER_JOURNEYS.md) user needs
-3. Prioritize based on [HIERARCHICAL_UI_PLAN.md](HIERARCHICAL_UI_PLAN.md) roadmap
-
----
-
-## 🎯 Current Status
-
-**Focus:** Building hierarchical navigation foundation
-
-**Current Phase:** Planning complete, ready to implement
-
-**Next Steps:**
-1. Implement Breadcrumbs component
-2. Implement CategoryTree component
-3. Enhance Category and Post pages
+1. Use [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) as North Star
+2. Validate against user needs defined in the strategy
+3. Check [../project_backlog.md](../project_backlog.md) for prioritization
 
 ---
 
@@ -97,36 +84,38 @@ Detailed technical plan for implementing hierarchical navigation.
 
 ### **When to update:**
 
-**VISION.md**
-- Update: When strategic direction changes
-- Review: Quarterly
+**PRODUCT_STRATEGY.md**
+- Update: When strategic direction changes or user feedback reveals new patterns
+- Review: Quarterly or when major pivots occur
 - Owner: Product owner
 
-**USER_JOURNEYS.md**
-- Update: When user feedback reveals new patterns
-- Review: Monthly during active development
-- Owner: UX lead / Product owner
-
-**HIERARCHICAL_UI_PLAN.md**
-- Update: As tasks complete and new ones emerge
-- Review: Weekly during implementation
-- Owner: Technical lead
+**API.md**
+- Update: When new endpoints are added or existing ones change significantly
+- Review: With each release that includes API changes
+- Owner: Backend team
 
 ---
 
 ## 🔗 Related Documentation
 
 **In Root Directory:**
-- [README.md](../README.md) - Project overview and setup
-- [CHANGELOG.md](../CHANGELOG.md) - Version history
-- [ROADMAP.md](../ROADMAP.md) - Long-term feature roadmap
-- [project_backlog.md](../project_backlog.md) - Current sprint tasks
+- [README.md](../README.md) - Project overview, setup instructions, and architecture
+- [CHANGELOG.md](../CHANGELOG.md) - Version history and release notes
+- [project_backlog.md](../project_backlog.md) - Current sprint tasks and long-term roadmap
+- [LICENSE](../LICENSE) - MIT license
 
-**Future Docs (Coming Soon):**
-- `docs/API.md` - API documentation
-- `docs/ARCHITECTURE.md` - Technical architecture
-- `docs/DEPLOYMENT.md` - Deployment guide
-- `docs/CONTRIBUTING.md` - Contribution guidelines
+---
+
+## 📝 Documentation Structure Policy
+
+⚠️ **IMPORTANT:** Before creating, modifying, or deleting any .md files:
+
+1. **Always ask for approval first**
+2. **Discuss the purpose and placement** with the project owner
+3. **Consider if the content fits into existing documents**
+4. **Avoid creating new files without explicit agreement**
+
+This policy prevents documentation sprawl and maintains a clean, organized structure.
 
 ---
 

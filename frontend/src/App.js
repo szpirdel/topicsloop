@@ -10,6 +10,8 @@ import EditPost from "./components/EditPost";
 import Profile from "./components/Profile";
 import Visualization from "./components/Visualization";
 import Categories from "./components/Categories";
+import LandingPage from "./components/LandingPage";
+import TopicsLoopIcon from "./components/TopicsLoopIcon";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
 // Shared Search Component (for reuse on different pages)
@@ -84,11 +86,25 @@ const SearchComponent = ({ placeholder = "Search posts...", className = "" }) =>
 // Navigation Component (without search bar)
 const Navigation = () => {
   const { isAuthenticated, userInfo, logout } = useAuth();
+  const location = window.location;
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
+  const getNavLinkStyle = (path) => ({
+    ...navLinkStyle,
+    borderBottom: location.pathname === path ? '2px solid #667eea' : '2px solid transparent',
+    color: location.pathname === path ? '#667eea' : '#6c757d',
+    fontWeight: location.pathname === path ? '600' : '500'
+  });
 
   return (
     <nav style={{
       backgroundColor: 'white',
-      padding: '1rem 2rem',
+      padding: '0.75rem 2rem',
       marginBottom: '2rem',
       boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
       borderBottom: '1px solid #e9ecef'
@@ -100,39 +116,49 @@ const Navigation = () => {
         maxWidth: '1200px',
         margin: '0 auto'
       }}>
+        {/* Logo on the left */}
         <Link
           to="/"
           style={{
-            color: '#2c3e50',
-            textDecoration: 'none',
-            fontSize: '1.5rem',
-            fontWeight: 'bold'
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            textDecoration: 'none'
           }}
         >
-          TopicsLoop
+          <TopicsLoopIcon size={40} />
+          <span style={{
+            color: '#667eea',
+            fontSize: '1.25rem',
+            fontWeight: '800',
+            letterSpacing: '-0.02em'
+          }}>
+            TopicsLoop
+          </span>
         </Link>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          {/* Categories always visible */}
-          <Link to="/categories" style={navLinkStyle}>Categories</Link>
-
-          {/* Posts only for authenticated users */}
+        {/* All navigation links on the right with tighter spacing */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {/* My TopicsLoop only for authenticated users */}
           {isAuthenticated && (
-            <Link to="/posts" style={navLinkStyle}>Posts</Link>
+            <Link to="/posts" style={getNavLinkStyle('/posts')}>My TopicsLoop</Link>
           )}
 
-          {/* Knowledge Map always visible */}
-          <Link to="/visualizations" style={navLinkStyle}>Knowledge Map</Link>
+          {/* Browse Systematically always visible */}
+          <Link to="/categories" style={getNavLinkStyle('/categories')}>Browse Systematically</Link>
+
+          {/* Browse on Graph always visible */}
+          <Link to="/visualizations" style={getNavLinkStyle('/visualizations')}>Browse on Graph</Link>
 
           {isAuthenticated ? (
             <>
-              <Link to="/create" style={navLinkStyle}>Create Post</Link>
-              <Link to="/profile" style={navLinkStyle}>Profile</Link>
+              <Link to="/create" style={getNavLinkStyle('/create')}>Create Post</Link>
+              <Link to="/profile" style={getNavLinkStyle('/profile')}>Edit Profile</Link>
               <span style={{ color: '#6c757d', fontSize: '0.9rem' }}>
                 {userInfo?.username}
               </span>
               <button
-                onClick={logout}
+                onClick={handleLogout}
                 style={{
                   padding: '0.5rem 1rem',
                   backgroundColor: '#e74c3c',
@@ -168,132 +194,23 @@ const navLinkStyle = {
 };
 
 const HomePage = () => {
-  const { isAuthenticated, userInfo } = useAuth();
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
 
-  return (
-    <div style={{
-      maxWidth: '1200px',
-      margin: '0 auto',
-      padding: '2rem',
-      textAlign: 'center'
-    }}>
-      {/* Call-to-Action Section for non-authenticated users */}
-      {!isAuthenticated && (
-        <div style={{
-          marginBottom: '2rem',
-          padding: '2rem',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '8px',
-          border: '2px solid #e9ecef'
-        }}>
-          <h2 style={{ color: '#2c3e50', marginBottom: '1rem', fontSize: '2rem' }}>
-            Join TopicsLoop Today
-          </h2>
-          <p style={{ color: '#6c757d', marginBottom: '1.5rem', fontSize: '1.1rem' }}>
-            Experience the future of content discovery and knowledge sharing
-          </p>
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link
-              to="/register"
-              style={{
-                padding: '0.75rem 2rem',
-                backgroundColor: '#007bff',
-                color: 'white',
-                textDecoration: 'none',
-                borderRadius: '5px',
-                fontWeight: 'bold',
-                fontSize: '1.1rem',
-                transition: 'background-color 0.3s ease'
-              }}
-              onMouseEnter={(e) => e.target.style.backgroundColor = '#0056b3'}
-              onMouseLeave={(e) => e.target.style.backgroundColor = '#007bff'}
-            >
-              Get Started
-            </Link>
-            <Link
-              to="/login"
-              style={{
-                padding: '0.75rem 2rem',
-                backgroundColor: 'transparent',
-                color: '#007bff',
-                textDecoration: 'none',
-                borderRadius: '5px',
-                border: '2px solid #007bff',
-                fontWeight: 'bold',
-                fontSize: '1.1rem',
-                transition: 'all 0.3s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.backgroundColor = '#007bff';
-                e.target.style.color = 'white';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.backgroundColor = 'transparent';
-                e.target.style.color = '#007bff';
-              }}
-            >
-              Sign In
-            </Link>
-          </div>
-        </div>
-      )}
+  // Redirect authenticated users to Posts (My TopicsLoop)
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/posts');
+    }
+  }, [isAuthenticated, navigate]);
 
+  // Show landing page for non-authenticated users
+  if (!isAuthenticated) {
+    return <LandingPage />;
+  }
 
-      <div style={{
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white',
-        padding: '2rem',
-        borderRadius: '8px',
-        marginBottom: '2rem'
-      }}>
-        <h1 style={{
-          fontSize: '2.2rem',
-          marginBottom: '0.5rem',
-          fontWeight: '600'
-        }}>
-          AI-Powered Knowledge Discovery Platform
-        </h1>
-        <p style={{
-          fontSize: '1.1rem',
-          marginBottom: isAuthenticated ? '0.5rem' : '0',
-          opacity: 0.95
-        }}>
-          Explore connections, discover insights, share knowledge
-        </p>
-        {isAuthenticated && userInfo && (
-          <p style={{ fontSize: '1rem', opacity: 0.9, marginTop: '0.5rem' }}>
-            Hello, <strong>{userInfo.username}</strong>! Ready to explore?
-          </p>
-        )}
-      </div>
-
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-        gap: '2rem',
-        marginTop: '2rem'
-      }}>
-        <FeatureCard
-          title="📚 Browse Posts"
-          description="Explore diverse content across multiple categories with AI-powered semantic analysis"
-          link="/posts"
-        />
-        <FeatureCard
-          title="🕸️ Knowledge Map"
-          description="Visualize connections between topics using advanced graph neural networks"
-          link="/visualizations"
-        />
-        {isAuthenticated && (
-          <FeatureCard
-            title="✍️ Create Content"
-            description="Share your knowledge and let AI automatically suggest relevant categories"
-            link="/create"
-          />
-        )}
-      </div>
-
-    </div>
-  );
+  // Return null while redirecting authenticated users
+  return null;
 };
 
 // Feature Card Component
@@ -343,15 +260,21 @@ const FeatureCard = ({ title, description, link }) => {
 };
 
 // Layout Component
-const Layout = ({ children }) => {
+const Layout = ({ children, showNav = true }) => {
   return (
     <>
-      <Navigation />
-      <main style={{ minHeight: 'calc(100vh - 120px)' }}>
+      {showNav && <Navigation />}
+      <main style={{ minHeight: showNav ? 'calc(100vh - 120px)' : '100vh' }}>
         {children}
       </main>
     </>
   );
+};
+
+// Home Layout - hides nav for non-authenticated users on landing page
+const HomeLayout = ({ children }) => {
+  const { isAuthenticated } = useAuth();
+  return <Layout showNav={isAuthenticated}>{children}</Layout>;
 };
 
 const App = () => {
@@ -360,9 +283,9 @@ const App = () => {
       <Router>
         <Routes>
         <Route path="/" element={
-          <Layout>
+          <HomeLayout>
             <HomePage />
-          </Layout>
+          </HomeLayout>
         } />
         <Route path="/login" element={
           <Layout>

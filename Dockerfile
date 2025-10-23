@@ -4,8 +4,8 @@ FROM python:3.12-slim
 # Set the working directory in the container
 WORKDIR /app
 
-# Install dependencies - using minimal for now (mobile connection)
-COPY requirements_minimal.txt requirements.txt
+# Install dependencies - FULL AI STACK ENABLED! 🚀
+COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code

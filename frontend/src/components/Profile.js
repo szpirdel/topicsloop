@@ -36,7 +36,11 @@ const Profile = () => {
         console.log('Categories data:', categoriesResponse.data);
 
         setProfile(profileResponse.data);
-        setCategories(categoriesResponse.data);
+        // Handle both array response and object with categories key
+        const categoriesData = Array.isArray(categoriesResponse.data)
+          ? categoriesResponse.data
+          : categoriesResponse.data.categories || [];
+        setCategories(categoriesData);
         setBio(profileResponse.data.bio || '');
         setSelectedCategories(profileResponse.data.favorite_categories.map(cat => cat.id));
 

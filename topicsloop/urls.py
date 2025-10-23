@@ -20,10 +20,12 @@ from django.conf.urls.static import static
 from django.conf import settings
 from .views import home, FrontendAppView  # Ensure these views are defined in views.py
 from django.views.generic import TemplateView
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)    
+from rest_framework_simplejwt.views import TokenRefreshView
+from accounts.serializers import CustomTokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer    
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -31,7 +33,7 @@ urlpatterns = [
     path('blog/', include('blog.urls')),  # URL dla aplikacji blogowej
     path('home/', home, name='home'),  # Path for the home page (zmieniłem na 'home/' dla unikalności)
     path('auth/', include('djoser.urls')),  # Rejestracja, logowanie, JWT authentication
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('', home, name='home-root'),  # Strona główna
     #path('frontend/', FrontendAppView.as_view(), name='frontend'),  # Widok dla Reacta

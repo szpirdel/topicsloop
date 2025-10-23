@@ -133,7 +133,7 @@ const Register = () => {
                 className="btn btn-outline"
                 style={{ padding: '0.25rem 0.75rem', fontSize: '0.9rem' }}
               >
-                Sign In
+                Log in
               </button>
             </div>
           </div>

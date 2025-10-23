@@ -7,6 +7,7 @@ import { fetchPostNetwork, fetchSimilarPosts, fetchSimilarCategories } from '../
 const Visualization = () => {
   const networkRef = useRef(null);
   const networkInstance = useRef(null);
+  const isInitialized = useRef(false);
 
   // Always start with unified graph, but check for focus post
   const getInitialGraphType = () => {
@@ -23,30 +24,30 @@ const Visualization = () => {
     return urlParams.get('focus_category');
   };
 
+  const getInitialFindSimilar = () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('find_similar') === 'true';
+  };
+
   const [currentGraph, setCurrentGraph] = useState(getInitialGraphType());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
   const [stats, setStats] = useState({});
   const [expandedNodes, setExpandedNodes] = useState(new Set());
-  const [isPersonalized, setIsPersonalized] = useState(true);
+  const [isPersonalized, setIsPersonalized] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
   const [focusPostId, setFocusPostId] = useState(getInitialFocusPostId());
   const [focusCategoryId, setFocusCategoryId] = useState(getInitialFocusCategoryId());
+  const [autoFindSimilar, setAutoFindSimilar] = useState(getInitialFindSimilar());
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostModal, setShowPostModal] = useState(false);
-  const [physicsEnabled, setPhysicsEnabled] = useState(true);
+  const [physicsEnabled, setPhysicsEnabled] = useState(false);
   const [isStabilizing, setIsStabilizing] = useState(false);
+  const [successMessage, setSuccessMessage] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Context menu state
-  const [contextMenu, setContextMenu] = useState({
-    visible: false,
-    x: 0,
-    y: 0,
-    nodeId: null,
-    nodeType: null,
-    nodeData: null
-  });
+  // Removed node menu state - using overlay buttons instead
 
   // Handle post node click
   const handlePostNodeClick = useCallback((node) => {
@@ -61,56 +62,408 @@ const Visualization = () => {
     setSelectedPost(null);
   }, []);
 
-  // Context menu functions
-  const hideContextMenu = useCallback(() => {
-    setContextMenu(prev => ({ ...prev, visible: false }));
+  // Clear similarity highlighting
+  const clearSimilarityHighlighting = useCallback(() => {
+    if (networkInstance.current) {
+      const nodes = networkInstance.current.body.data.nodes;
+      const edges = networkInstance.current.body.data.edges;
+
+      // Prepare batch updates for post nodes
+      const allNodes = nodes.get();
+      const nodesToUpdate = [];
+
+      allNodes.forEach(node => {
+        if (node.type === 'post') {
+          nodesToUpdate.push({
+            ...node,
+            color: {
+              background: '#3498db',
+              border: '#2980b9'
+            },
+            size: 20 // Reset to default size
+          });
+        }
+      });
+
+      // Batch update nodes
+      if (nodesToUpdate.length > 0) {
+        nodes.update(nodesToUpdate);
+      }
+
+      // Remove similarity edges in batch
+      const allEdges = edges.get();
+      const edgesToRemove = allEdges
+        .filter(edge => edge.id && edge.id.startsWith('similarity_'))
+        .map(edge => edge.id);
+
+      if (edgesToRemove.length > 0) {
+        edges.remove(edgesToRemove);
+      }
+
+      console.log('🧹 Cleared similarity highlighting');
+    }
   }, []);
 
-  const showContextMenu = useCallback((nodeId, nodeType, nodeData, x, y) => {
-    setContextMenu({
-      visible: true,
-      x,
-      y,
-      nodeId,
-      nodeType,
-      nodeData
-    });
-  }, []);
+  // Spatial organization for similar posts - SIDE BY SIDE layout
+  const organizeSimilarPostsLayout = (originalPostId, similarPostIds, nodes) => {
+    if (!networkInstance.current) return;
 
-  const handleFindSimilarPosts = useCallback(async (postId) => {
+    console.log('🎯 Organizing similar posts layout - side-by-side');
+
     try {
-      hideContextMenu();
-      setLoading(true);
+      // 1. FREEZE all nodes first to prevent chaos
+      const allNodes = nodes.get();
+      const freezeUpdates = allNodes.map(node => ({
+        id: node.id,
+        fixed: { x: true, y: true },
+        physics: false
+      }));
+      nodes.update(freezeUpdates);
+      console.log(`🧊 Froze ${allNodes.length} nodes`);
+
+      // 2. Get original post position
+      const originalPostNodeId = `post_${originalPostId}`;
+      let positions = networkInstance.current.getPositions([originalPostNodeId]);
+      let centerX = positions[originalPostNodeId]?.x || 0;
+      let centerY = positions[originalPostNodeId]?.y || 0;
+
+      console.log(`📍 Original post position: (${centerX}, ${centerY})`);
+
+      const similarPostNodeIds = similarPostIds.map(id => `post_${id}`);
+      const nodesToReposition = [];
+
+      // 3. Position original post on the LEFT
+      nodesToReposition.push({
+        id: originalPostNodeId,
+        x: centerX - 37, // Move LEFT (reduced by 87.5% from original 300)
+        y: centerY,
+        fixed: { x: true, y: true },
+        physics: false
+      });
+
+      // 4. Position similar posts on the RIGHT in a vertical column
+      const verticalSpacing = 25; // Space between similar posts (reduced by 87.5% from original 200)
+      const startY = centerY - ((similarPostIds.length - 1) * verticalSpacing) / 2;
+
+      similarPostNodeIds.forEach((nodeId, index) => {
+        const x = centerX + 50; // RIGHT side (reduced by 87.5% from original 400)
+        const y = startY + (index * verticalSpacing);
+
+        nodesToReposition.push({
+          id: nodeId,
+          x: x,
+          y: y,
+          fixed: { x: true, y: true },
+          physics: false
+        });
+
+        console.log(`📍 Similar post ${index + 1}/${similarPostIds.length}: ${nodeId} -> (${x.toFixed(1)}, ${y.toFixed(1)})`);
+      });
+
+      // 5. Apply positions for original + similar posts
+      nodes.update(nodesToReposition);
+      console.log(`✅ Positioned ${nodesToReposition.length} posts (LEFT: original, RIGHT: similar)`);
+
+      // 6. UNFREEZE ALL nodes after layout is done (including original + similar)
+      setTimeout(() => {
+        const unfreezeUpdates = allNodes.map(node => ({
+          id: node.id,
+          fixed: { x: false, y: false },
+          physics: true
+        }));
+
+        nodes.update(unfreezeUpdates);
+        console.log(`🔓 Unfroze ALL ${unfreezeUpdates.length} nodes - now draggable!`);
+      }, 1200);  // Wait a bit longer for layout to settle
+
+      // 7. Focus view on original + similar posts cluster
+      setTimeout(() => {
+        if (networkInstance.current) {
+          const focusNodes = [originalPostNodeId, ...similarPostNodeIds];
+          networkInstance.current.fit({
+            nodes: focusNodes,
+            animation: {
+              duration: 1000,
+              easingFunction: 'easeInOutQuad'
+            },
+            padding: 18
+          });
+          console.log('🎯 Focused view on side-by-side layout');
+        }
+      }, 600);
+
+    } catch (error) {
+      console.error('❌ Failed to organize similar posts layout:', error);
+    }
+  };
+
+  // Removed node menu functions - using overlay buttons instead
+
+  const handleFindSimilarPosts = async (postId) => {
+    try {
+      console.log('🚀 Starting similarity search for post ID:', postId);
+      // Don't set loading state to prevent re-renders that destroy the network
 
       const similarPostsData = await fetchSimilarPosts(postId, {
         threshold: 0.5,
         limit: 5,
-        method: 'fallback'
+        method: 'gnn'  // 🧠 Only use GNN for similarity search - this is AI-specific!
       });
 
+      console.log('📨 Received similarity response:', similarPostsData);
+
       if (similarPostsData.similar_posts && similarPostsData.similar_posts.length > 0) {
-        // Create a new graph focused on similar posts
-        const similarPostIds = similarPostsData.similar_posts.map(sp => sp.post.id);
-        similarPostIds.push(parseInt(postId)); // Include the original post
+        console.log('🔍 FULL Similar posts response:', similarPostsData);
+        console.log('🔍 Similar posts array:', similarPostsData.similar_posts);
 
-        // Note: Graph will be reloaded automatically when data updates
+        // Highlight similar posts on the current graph
+        if (networkInstance.current && networkInstance.current.body && networkInstance.current.body.data) {
+          console.log('🔍 Network instance validation passed');
+          const nodes = networkInstance.current.body.data.nodes;
+          const edges = networkInstance.current.body.data.edges;
 
-        console.log('🔍 Found similar posts:', similarPostsData.similar_posts.length);
-        alert(`Found ${similarPostsData.similar_posts.length} similar posts! Check the graph for highlighted connections.`);
+          console.log('📊 Current graph nodes count:', nodes.length);
+          console.log('📊 Current graph edges count:', edges.length);
+
+          // Get all current nodes for debugging
+          const allNodes = nodes.get();
+          const postNodes = allNodes.filter(n => n.type === 'post');
+          console.log('📄 Current post nodes in graph:', postNodes.map(n => ({id: n.id, label: n.label})));
+
+          // Prepare batch updates for better performance
+          const nodesToUpdate = [];
+
+          // First, reset all post nodes to default colors and level
+          allNodes.forEach(node => {
+            if (node.type === 'post') {
+              nodesToUpdate.push({
+                ...node,
+                color: {
+                  background: node.id === `post_${postId}` ? '#ff8c00' : '#3498db', // Bright orange for original post
+                  border: node.id === `post_${postId}` ? '#e67e00' : '#2980b9'
+                },
+                size: node.id === `post_${postId}` ? 25 : 20,
+                level: node.id === `post_${postId}` ? 10 : 1  // Original post on top
+              });
+            }
+          });
+
+          // Extract similar post IDs and prepare highlights
+          const similarPostIds = similarPostsData.similar_posts.map(sp => sp.post.id);
+          console.log('🎯 Looking for similar post IDs:', similarPostIds);
+
+          let highlightedCount = 0;
+          const edgesToAdd = [];
+
+          // Process similar posts and prepare batch updates
+          similarPostIds.forEach(similarId => {
+            const similarNodeId = `post_${similarId}`;
+            console.log(`🔍 Searching for node: ${similarNodeId}`);
+
+            const existingNode = nodes.get(similarNodeId);
+            console.log(`📍 Node ${similarNodeId} exists:`, !!existingNode);
+
+            if (existingNode) {
+              console.log(`✅ Found node ${similarNodeId}, preparing highlight...`);
+
+              // Find and update the node in our batch update array
+              const updateIndex = nodesToUpdate.findIndex(n => n.id === similarNodeId);
+              if (updateIndex !== -1) {
+                nodesToUpdate[updateIndex] = {
+                  ...nodesToUpdate[updateIndex],
+                  color: {
+                    background: '#e74c3c', // Red for similar posts
+                    border: '#c0392b'
+                  },
+                  size: 25, // Make them bigger
+                  level: 10  // Similar posts on top (same as original)
+                };
+              }
+              highlightedCount++;
+
+              // Prepare edge for batch addition
+              const edgeId = `similarity_${postId}_${similarId}`;
+              console.log(`🔗 Preparing edge: ${edgeId}`);
+
+              if (!edges.get(edgeId)) {
+                edgesToAdd.push({
+                  id: edgeId,
+                  from: `post_${postId}`,
+                  to: similarNodeId,
+                  color: { color: '#e74c3c' },
+                  width: 3,
+                  dashes: false,
+                  title: 'Similar post connection'
+                });
+                console.log(`✅ Prepared edge: ${edgeId}`);
+              } else {
+                console.log(`⚠️ Edge ${edgeId} already exists`);
+              }
+            } else {
+              console.log(`❌ Node ${similarNodeId} NOT FOUND in current graph`);
+            }
+          });
+
+          // Execute batch updates for better performance
+          if (nodesToUpdate.length > 0) {
+            console.log(`📊 Batch updating ${nodesToUpdate.length} nodes`);
+            console.log('📊 Network instance exists:', !!networkInstance.current);
+            console.log('📊 Nodes DataSet exists:', !!nodes);
+            try {
+              nodes.update(nodesToUpdate);
+              console.log('✅ Node batch update successful');
+
+              // Organize similar posts spatially - move them to one side
+              setTimeout(() => {
+                organizeSimilarPostsLayout(postId, similarPostIds, nodes);
+              }, 200); // Small delay to let the color updates render first
+
+            } catch (error) {
+              console.error('❌ Node batch update failed:', error);
+            }
+          }
+
+          if (edgesToAdd.length > 0) {
+            console.log(`🔗 Batch adding ${edgesToAdd.length} edges`);
+            console.log('🔗 Edges DataSet exists:', !!edges);
+            try {
+              edges.add(edgesToAdd);
+              console.log('✅ Edge batch update successful');
+            } catch (error) {
+              console.error('❌ Edge batch update failed:', error);
+            }
+          }
+
+          console.log(`📊 SUMMARY: Highlighted ${highlightedCount}/${similarPostIds.length} posts, added ${edgesToAdd.length} edges`);
+
+          // Debug: Check if graph is visually rendered
+          setTimeout(() => {
+            if (networkInstance.current) {
+              const canvas = networkRef.current?.querySelector('canvas');
+              console.log('🎨 Canvas element exists:', !!canvas);
+              console.log('🎨 Canvas dimensions:', canvas ? `${canvas.width}x${canvas.height}` : 'N/A');
+              console.log('🎨 Network container dimensions:', networkRef.current ? `${networkRef.current.offsetWidth}x${networkRef.current.offsetHeight}` : 'N/A');
+              console.log('🎨 Network is stabilized:', !networkInstance.current.physics.physicsEnabled || networkInstance.current.physics.stabilized);
+
+              // Force a redraw
+              try {
+                networkInstance.current.redraw();
+                console.log('🎨 Forced network redraw');
+              } catch (e) {
+                console.error('❌ Failed to force redraw:', e);
+              }
+            }
+          }, 100);
+
+          // 🎯 NEW APPROACH: Add missing posts dynamically instead of reloading
+          const missingCount = similarPostIds.length - highlightedCount;
+          console.log(`📊 Similar posts status: ${highlightedCount}/${similarPostIds.length} found in current graph, ${missingCount} missing`);
+
+          if (missingCount > 0) {
+            console.log(`🔄 Adding ${missingCount} missing similar posts to current graph...`);
+
+            // Get missing post data
+            const missingPostIds = similarPostIds.filter(id => !nodes.get(`post_${id}`));
+            const missingPostsData = similarPostsData.similar_posts.filter(sp =>
+              missingPostIds.includes(sp.post.id)
+            );
+
+            // Add missing posts as nodes
+            const newNodes = [];
+            const newEdges = [];
+
+            missingPostsData.forEach(similarPost => {
+              const post = similarPost.post;
+              const postNodeId = `post_${post.id}`;
+
+              // Create post node
+              newNodes.push({
+                id: postNodeId,
+                label: post.title.substring(0, 30) + (post.title.length > 30 ? '...' : ''),
+                type: 'post',
+                post_id: post.id,
+                title: `📄 ${post.title}\n👤 ${post.author?.username || 'Unknown'}\n📅 ${new Date(post.created_at).toLocaleDateString()}\n📂 ${post.primary_category?.name || 'No category'}`,
+                shape: 'box',
+                size: 25,  // Same as highlighted posts
+                color: {
+                  background: '#e74c3c', // Red for similar posts
+                  border: '#c0392b'
+                },
+                font: { size: 14, color: 'white' },
+                physics: true,
+                level: 10  // Similar posts appear on top!
+              });
+
+              // Create edge from original post to this similar post
+              const edgeId = `similarity_${postId}_${post.id}`;
+              newEdges.push({
+                id: edgeId,
+                from: `post_${postId}`,
+                to: postNodeId,
+                color: { color: '#e74c3c' },
+                width: 3,
+                dashes: false,
+                title: `Similarity: ${(similarPost.similarity_score * 100).toFixed(1)}%`
+              });
+
+              // Connect post to its category if category node exists
+              if (post.primary_category) {
+                const catNodeId = `category_${post.primary_category.id}`;
+                if (allNodes.some(n => n.id === catNodeId)) {
+                  newEdges.push({
+                    id: `post_${post.id}_to_cat_${post.primary_category.id}`,
+                    from: postNodeId,
+                    to: catNodeId,
+                    title: 'Primary category',
+                    color: { color: '#95a5a6' },
+                    width: 2,
+                    dashes: [5, 5]
+                  });
+                }
+              }
+            });
+
+            // Add new nodes and edges to the graph
+            if (newNodes.length > 0) {
+              try {
+                nodes.add(newNodes);
+                edges.add(newEdges);
+                console.log(`✅ Added ${newNodes.length} missing posts and ${newEdges.length} connections to graph`);
+
+                // Organize all similar posts spatially
+                setTimeout(() => {
+                  organizeSimilarPostsLayout(postId, similarPostIds, nodes);
+                }, 300);
+
+                setSuccessMessage(`🔍 Found ${similarPostsData.similar_posts.length} similar posts! ${highlightedCount} highlighted, ${newNodes.length} added to graph.`);
+              } catch (error) {
+                console.error('❌ Failed to add missing posts:', error);
+                setSuccessMessage(`🔍 Found ${similarPostsData.similar_posts.length} similar posts! ${highlightedCount} highlighted in red.`);
+              }
+            }
+          } else {
+            setSuccessMessage(`🔍 Found ${similarPostsData.similar_posts.length} similar posts! All ${highlightedCount} highlighted in red with connection lines.`);
+          }
+        } else {
+          console.log('❌ Network instance validation failed');
+          console.log('❌ networkInstance.current:', !!networkInstance.current);
+          console.log('❌ networkInstance.current.body:', !!(networkInstance.current && networkInstance.current.body));
+          console.log('❌ networkInstance.current.body.data:', !!(networkInstance.current && networkInstance.current.body && networkInstance.current.body.data));
+          setSuccessMessage(`⚠️ Found ${similarPostsData.similar_posts.length} similar posts but graph needs to refresh. Please try again.`);
+        }
       } else {
-        alert('No similar posts found with current threshold.');
+        console.log('❌ No similar posts found or empty response');
+        setSuccessMessage('🔍 No similar posts found with current similarity threshold.');
       }
     } catch (error) {
       console.error('Error finding similar posts:', error);
-      alert('Error finding similar posts. Please try again.');
-    } finally {
-      setLoading(false);
+      setSuccessMessage('❌ Error finding similar posts. Please try again.');
     }
-  }, [isPersonalized, hideContextMenu]);
+  };
 
   const handleFindSimilarCategories = useCallback(async (categoryId) => {
     try {
-      hideContextMenu();
+      // Menu functionality removed
       setLoading(true);
 
       const similarCategoriesData = await fetchSimilarCategories(categoryId, {
@@ -135,10 +488,10 @@ const Visualization = () => {
     } finally {
       setLoading(false);
     }
-  }, [hideContextMenu]);
+  }, []);
 
   const handleViewDetails = useCallback((nodeData, nodeType) => {
-    hideContextMenu();
+    // hideNodeMenu removed
 
     if (nodeType === 'post') {
       setSelectedPost(nodeData);
@@ -147,10 +500,10 @@ const Visualization = () => {
       // Navigate to category page or show category details
       window.open(`/categories?focus=${nodeData.id}`, '_blank');
     }
-  }, [hideContextMenu]);
+  }, []);
 
   const handleFocusOnNode = useCallback((nodeId, nodeType) => {
-    hideContextMenu();
+    // hideNodeMenu removed
 
     if (nodeType === 'post') {
       const postId = nodeId.replace('post_', '');
@@ -161,7 +514,7 @@ const Visualization = () => {
       setFocusCategoryId(categoryId);
       // Graph will reload automatically when focusCategoryId changes
     }
-  }, [hideContextMenu]);
+  }, []);
 
   // Handle category expansion in posts graph
   const handleCategoryExpansionInPostsGraph = useCallback(async (nodeId, categoryNode) => {
@@ -177,7 +530,8 @@ const Visualization = () => {
         include_posts: true,
         similarity_threshold: 0.7,
         max_posts: 15,
-        max_connections: 3
+        max_connections: 3,
+        method: 'fallback'  // 🚀 OPTIMIZATION: Use fallback for category expansion (faster)
       };
 
       console.log('📊 Fetching category posts with params:', params);
@@ -215,8 +569,8 @@ const Visualization = () => {
           background: '#3498db',
           border: '#2980b9',
           highlight: {
-            background: '#e74c3c',
-            border: '#c0392b'
+            background: '#28a745',
+            border: '#1e7e34'
           }
         },
         font: {
@@ -243,67 +597,82 @@ const Visualization = () => {
       }
     };
 
-    // Hierarchical layout for hierarchical graph
-    if (currentGraph === 'hierarchical') {
+    // 🎯 RADIAL/CIRCULAR LAYOUT - Posts cluster around their categories
+    // Works for both 'hierarchical' and 'unified' views
+    if (currentGraph === 'hierarchical' || currentGraph === 'unified') {
       return {
         ...baseOptions,
         layout: {
-          hierarchical: {
-            enabled: true,
-            levelSeparation: 150,
-            nodeSpacing: 100,
-            treeSpacing: 200,
-            blockShifting: true,
-            edgeMinimization: true,
-            parentCentralization: true,
-            direction: 'UD',
-            sortMethod: 'directed'
-          }
+          improvedLayout: false,  // DISABLE - it was overriding our settings!
+          randomSeed: undefined
         },
         physics: {
-          enabled: true,
-          hierarchicalRepulsion: {
-            centralGravity: 0.0,
-            springLength: 100,
-            springConstant: 0.01,
-            nodeDistance: 120,
-            damping: 0.09
-          }
+          enabled: true,  // Enable for initial layout
+          stabilization: {
+            enabled: true,
+            iterations: 5000,  // Layout calculation
+            updateInterval: 100,
+            fit: true,
+            onlyDynamicEdges: false
+          },
+          forceAtlas2Based: {
+            gravitationalConstant: -62,  // Reduced by 87.5% total (from original -500)
+            centralGravity: 0.008,  // Strong pull to keep nodes very close
+            springLength: 50,  // Reduced by 87.5% total (from original 400)
+            springConstant: 0.08,  // Very strong springs for ultra-tight clustering
+            damping: 0.4,
+            avoidOverlap: 0.1  // Minimal overlap avoidance for very compact layout
+          },
+          solver: 'forceAtlas2Based',
+          timestep: 0.35,
+          adaptiveTimestep: true
+        },
+        interaction: {
+          ...baseOptions.interaction,
+          dragNodes: true,
+          dragView: true,
+          zoomView: true
         }
       };
     }
 
-    // Standard physics for other layouts
+    // Standard physics for other layouts - optimized for many nodes
     return {
       ...baseOptions,
       physics: {
         enabled: physicsEnabled,
         stabilization: {
           enabled: physicsEnabled,
-          iterations: physicsEnabled ? 1000 : 0,
-          updateInterval: 25
+          iterations: physicsEnabled ? 2000 : 0,  // More iterations for 109 posts
+          updateInterval: 50,  // Less frequent updates = smoother
+          fit: true  // Auto-fit after stabilization
         },
         barnesHut: {
-          gravitationalConstant: -8000,
-          centralGravity: 0.3,
-          springLength: 95,
-          springConstant: 0.04,
-          damping: 0.09
-        }
+          gravitationalConstant: -15000,  // Strong repulsion = better spacing
+          centralGravity: 0.05,  // Very little central pull = spread out
+          springLength: 200,  // Long springs = lots of space between nodes
+          springConstant: 0.01,  // Loose springs = flexible positioning
+          damping: 0.2,  // High damping = faster stabilization
+          avoidOverlap: 0.8  // Strong overlap avoidance
+        },
+        solver: 'barnesHut',  // Best for many nodes
+        timestep: 0.5  // Larger timestep = faster simulation
       },
       layout: {
-        improvedLayout: true
+        improvedLayout: true,
+        clusterThreshold: 200  // Better clustering for many nodes
       },
       interaction: {
         ...baseOptions.interaction,
-        dragNodes: true, // Always allow dragging
+        dragNodes: true,
         dragView: true,
         zoomView: true
       }
     };
   }, [currentGraph, physicsEnabled]);
 
-  // Fetch graph data from Django API
+  // 🚀 OPTIMIZATION: Fetch graph data with controlled GNN usage
+  // GNN is only used when actually needed (focus_post, AI similarity features)
   const fetchGraphData = useCallback(async (graphType, personalized = isPersonalized) => {
     setLoading(true);
     setError('');
@@ -316,14 +685,17 @@ const Visualization = () => {
         const params = {
           include_posts: true,
           similarity_threshold: 0.7,
-          max_posts: 20,
+          max_posts: 200,  // 🎯 PHASE 1: Show ALL posts by default (was 20)
           max_connections: 5,
-          personalized: personalized  // Pass personalization to post network
+          personalized: personalized,  // Pass personalization to post network
+          method: 'fallback'  // 🚀 OPTIMIZATION: Use fallback by default (faster loading)
         };
 
         // Add focus_post_id if available
         if (focusPostId) {
           params.focus_post_id = focusPostId;
+          // 🧠 Only use GNN when focusing on specific post (AI-enhanced similarity)
+          params.method = 'gnn';
         }
 
         // Add focus_category_id if available
@@ -366,6 +738,7 @@ const Visualization = () => {
       if (networkInstance.current) {
         networkInstance.current.destroy();
         networkInstance.current = null;
+        isInitialized.current = false; // Reset initialization flag
       }
 
     } catch (err) {
@@ -374,7 +747,7 @@ const Visualization = () => {
     } finally {
       setLoading(false);
     }
-  }, [focusPostId, focusCategoryId]);
+  }, [focusPostId, focusCategoryId, isPersonalized]);
 
   // Expand a node to show its subcategories
   const expandNode = useCallback(async (nodeId) => {
@@ -412,7 +785,7 @@ const Visualization = () => {
 
             // Calculate position closer to parent node (reduced distance)
             const angle = (index * (360 / subcategoryData.nodes.length)) * (Math.PI / 180);
-            const distance = 120; // Reduced from default ~200-400 to 120
+            const distance = 15; // Reduced by 87.5% total (from original ~120 to 15)
             const x = parentPosition.x + distance * Math.cos(angle);
             const y = parentPosition.y + distance * Math.sin(angle);
 
@@ -561,6 +934,27 @@ const Visualization = () => {
 
     networkInstance.current = new Network(networkRef.current, data, networkOptions);
 
+    // 🔒 AUTO-DISABLE PHYSICS: Freeze nodes after initial stabilization
+    // This prevents continuous node movement after the graph layout is complete
+    if (currentGraph === 'hierarchical' || currentGraph === 'unified') {
+      networkInstance.current.once('stabilizationIterationsDone', () => {
+        console.log('✅ Stabilization complete - disabling physics to freeze nodes');
+        if (networkInstance.current) {
+          networkInstance.current.setOptions({ physics: { enabled: false } });
+          console.log('🔒 Physics disabled - nodes frozen in place');
+        }
+      });
+
+      // Fallback: Also listen to stabilized event (fires when nodes stop moving)
+      networkInstance.current.once('stabilized', (params) => {
+        console.log('✅ Graph stabilized after', params.iterations, 'iterations');
+        if (networkInstance.current) {
+          networkInstance.current.setOptions({ physics: { enabled: false } });
+          console.log('🔒 Physics disabled via stabilized event');
+        }
+      });
+    }
+
     // Set initial zoom and focus on specific post if available
     networkInstance.current.once('afterDrawing', () => {
       console.log('🔍 Network drawing completed');
@@ -578,11 +972,11 @@ const Visualization = () => {
           nodes.update({
             ...focusedPostNode,
             color: {
-              background: '#ff6b6b', // Bright red for focused post
-              border: '#ff3838',
+              background: '#ff8c00', // Bright orange for focused post
+              border: '#e67e00',
               highlight: {
-                background: '#ff4757',
-                border: '#ff3742'
+                background: '#ffa500',
+                border: '#e67e00'
               }
             },
             size: 25, // Make it bigger
@@ -596,7 +990,7 @@ const Visualization = () => {
 
           // Center view on the focused post
           networkInstance.current.focus(focusedPostNode.id, {
-            scale: 1.5,
+            scale: 0.375,  // Reduced by 75% total from original 1.5
             animation: {
               duration: 1000,
               easingFunction: 'easeInOutQuad'
@@ -615,7 +1009,7 @@ const Visualization = () => {
           console.log('⚠️ Focused post not found in nodes');
           // Fallback to normal zoom
           networkInstance.current.moveTo({
-            scale: 1.5,
+            scale: 0.375,  // Reduced by 75% total from original 1.5
             animation: {
               duration: 500,
               easingFunction: 'easeInOutQuad'
@@ -625,7 +1019,7 @@ const Visualization = () => {
       } else {
         // Normal zoom when no focus post
         networkInstance.current.moveTo({
-          scale: 1.5,
+          scale: 0.375,  // Reduced by 75% total from original 1.5
           animation: {
             duration: 500,
             easingFunction: 'easeInOutQuad'
@@ -639,31 +1033,50 @@ const Visualization = () => {
       // Animation completed - could be used for performance monitoring
     });
 
-    // Add DataSet event listeners
+    // Minimal DataSet event listeners for critical debugging only
     nodes.on('add', (event, properties) => {
-      console.log('📊 DataSet ADD event:', properties);
-    });
-
-    nodes.on('update', (event, properties) => {
-      console.log('📊 DataSet UPDATE event:', properties);
+      if (properties.items.length > 1) {
+        console.log('📊 DataSet bulk ADD:', properties.items.length, 'nodes');
+      }
     });
 
     edges.on('add', (event, properties) => {
-      console.log('🔗 DataSet EDGE ADD event:', properties);
+      if (properties.items.length > 1) {
+        console.log('🔗 DataSet bulk EDGE ADD:', properties.items.length, 'edges');
+      }
     });
+
+    // Ensure DataSet is fully loaded before proceeding
+    console.log('📊 DataSet initialization complete. Nodes:', nodes.length, 'Edges:', edges.length);
 
     // Add event listeners
     networkInstance.current.on('click', (params) => {
-      if (params.nodes.length > 0) {
-        const nodeId = params.nodes[0];
-        const node = nodes.get(nodeId);
-        console.log('👆 Single click on node:', node.label, '(id:', nodeId, ')');
+      console.log('👆 LEFT-CLICK params:', params);
 
-        // === POST NODE CLICK HANDLING ===
+      if (params.nodes.length === 0) {
+        console.log('👆 LEFT-CLICK on empty space');
+        return;
+      }
+
+      const nodeId = params.nodes[0];
+
+      try {
+        const node = nodes.get(nodeId);
+        if (!node) {
+          console.warn('Node not found in DataSet:', nodeId);
+          return;
+        }
+
+        console.log('👆 LEFT-CLICK on node:', node.label, '(id:', nodeId, 'type:', node.type, ')');
+
+        // Handle post nodes directly - open post detail overlay
         if (currentGraph === 'unified' && node?.type === 'post') {
-          console.log('📄 Post node clicked:', node);
+          console.log('📄 Post node clicked - opening detail overlay');
           handlePostNodeClick(node);
         }
+
+      } catch (error) {
+        console.error('Error accessing node data:', error);
       }
     });
 
@@ -678,6 +1091,8 @@ const Visualization = () => {
         // === UNIFIED GRAPH DOUBLE-CLICK HANDLING (original logic) ===
         if (currentGraph === 'unified') {
           console.log(`🎯 Double-clicked node: ${node?.label} (id: ${nodeId}) type: ${node?.type}`);
+
+          // Node menu removed - no need to check visibility
 
           // Handle post nodes in unified graph
           if (node?.type === 'post') {
@@ -751,54 +1166,25 @@ const Visualization = () => {
       console.log('Node hovered:', params.node);
     });
 
-    // Context menu event listener
-    networkInstance.current.on('oncontext', (params) => {
-      // Prevent default browser context menu
-      params.event.preventDefault();
+    // Clean up - no right-click handlers needed anymore
+  }, [graphData, networkOptions, currentGraph, expandedNodes]);
 
-      if (params.nodes.length > 0) {
-        const nodeId = params.nodes[0];
-        const node = nodes.get(nodeId);
+  // Log when useEffect runs to debug re-rendering issues
+  console.log('🔄 useEffect [initializeNetwork] running. Trigger:', {
+    graphDataNodes: graphData?.nodes?.length,
+    currentGraph,
+    expandedNodesSize: expandedNodes.size
+  });
 
-        if (node) {
-          const domPosition = networkInstance.current.canvasToDOM(params.pointer.canvas);
-          const containerRect = networkRef.current.getBoundingClientRect();
-
-          showContextMenu(
-            nodeId,
-            node.type,
-            node,
-            containerRect.left + domPosition.x,
-            containerRect.top + domPosition.y
-          );
-        }
-      } else {
-        hideContextMenu();
-      }
-    });
-
-    // Hide context menu on regular click or outside click
-    networkInstance.current.on('click', (params) => {
-      if (contextMenu.visible) {
-        hideContextMenu();
-      }
-
-      // Existing click logic
-      if (params.nodes.length > 0) {
-        const nodeId = params.nodes[0];
-        const node = nodes.get(nodeId);
-
-        if (node?.type === 'post') {
-          handlePostNodeClick(node);
-        }
-      }
-    });
-  }, [graphData, networkOptions, currentGraph, expandedNodes, contextMenu.visible, showContextMenu, hideContextMenu, handlePostNodeClick]);
+  // Click outside handler removed - no node menu needed
 
   // Handle graph type change
   const handleGraphTypeChange = (newType) => {
     setCurrentGraph(newType);
     setExpandedNodes(new Set()); // Reset expanded nodes when changing graph types
+
+    // Clear similarity highlighting when changing graph types
+    clearSimilarityHighlighting();
 
     // Clear focus post and category when switching away from unified view
     if (newType !== 'unified') {
@@ -859,50 +1245,105 @@ const Visualization = () => {
     return () => {
       if (networkInstance.current) {
         networkInstance.current.destroy();
+        networkInstance.current = null;
+        isInitialized.current = false;
       }
     };
   }, [currentGraph, fetchGraphData, isPersonalized, focusPostId, focusCategoryId]);
 
   // Initialize network when data is loaded (only for initial load, not for dynamic updates)
   useEffect(() => {
-    if (graphData.nodes.length > 0 && networkRef.current && !networkInstance.current) {
+    console.log('🔄 useEffect [initializeNetwork] triggered. Conditions:', {
+      hasNodes: graphData.nodes.length > 0,
+      hasContainer: !!networkRef.current,
+      noInstance: !networkInstance.current,
+      shouldInit: graphData.nodes.length > 0 && networkRef.current && !networkInstance.current
+    });
+
+    if (graphData.nodes.length > 0 && networkRef.current && !networkInstance.current && !isInitialized.current) {
       console.log('🔄 Initializing network for the first time');
+      isInitialized.current = true;
       initializeNetwork();
 
       // Auto-scroll to graph if focus_post or focus_category parameter is present
       if ((focusPostId || focusCategoryId) && networkRef.current) {
         setTimeout(() => {
-          networkRef.current.scrollIntoView({
-            behavior: 'smooth',
-            block: 'center'
-          });
-          console.log('📍 Auto-scrolled to graph canvas for focused item');
+          if (networkRef.current) {
+            networkRef.current.scrollIntoView({
+              behavior: 'smooth',
+              block: 'center'
+            });
+            console.log('📍 Auto-scrolled to graph canvas for focused item');
+          }
         }, 100); // Small delay to ensure network is rendered
       }
-    }
-  }, [graphData, initializeNetwork, focusPostId, focusCategoryId]);
 
-  // Global click listener to hide context menu
-  useEffect(() => {
-    const handleGlobalClick = (event) => {
-      if (contextMenu.visible) {
-        hideContextMenu();
+      // Auto-trigger similar posts if find_similar parameter is present
+      if (autoFindSimilar && focusPostId) {
+        console.log('🔄 Auto-triggering similar posts for focus post:', focusPostId);
+        setTimeout(() => {
+          handleFindSimilarPosts(focusPostId);
+          setAutoFindSimilar(false); // Prevent repeated triggers
+        }, 1500); // Wait for graph to stabilize before finding similar posts
       }
-    };
+    }
+  }, [graphData, initializeNetwork, focusPostId, focusCategoryId, autoFindSimilar]);
 
-    document.addEventListener('click', handleGlobalClick);
-    return () => {
-      document.removeEventListener('click', handleGlobalClick);
-    };
-  }, [contextMenu.visible, hideContextMenu]);
+  // Toggle fullscreen mode
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+    // Small delay to allow DOM to update, then fit the network to new container size
+    setTimeout(() => {
+      if (networkInstance.current) {
+        networkInstance.current.fit();
+      }
+    }, 100);
+  };
+
+  // Auto-hide success message after 6 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => {
+        setSuccessMessage(null);
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
+
+  // Global click listener removed - no node menu needed
 
   return (
-    <div className="content-container">
-      <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-        <h1 style={{ color: '#2c3e50', margin: 0 }}>Network Visualizations</h1>
-      </div>
+    <div
+      className="content-container"
+      style={isFullscreen ? {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 9999,
+        backgroundColor: 'white',
+        padding: '1rem',
+        overflow: 'auto'
+      } : {}}
+    >
+      {!isFullscreen && (
+        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+          <h1 style={{ color: '#2c3e50', margin: 0 }}>Network Visualizations</h1>
+        </div>
+      )}
 
-      <div className="visualization-container" style={{ textAlign: 'center' }}>
+      <div
+        className="visualization-container"
+        style={isFullscreen ? {
+          textAlign: 'center',
+          height: '100vh',
+          display: 'flex',
+          flexDirection: 'column'
+        } : {
+          textAlign: 'center'
+        }}
+      >
         {/* Graph Type Selector */}
         <div className="visualization-controls" style={{ textAlign: 'center', justifyContent: 'center', flexDirection: 'column' }}>
           {/* Tab Navigation */}
@@ -973,27 +1414,42 @@ const Visualization = () => {
                 className={`btn btn-sm ${physicsEnabled ? 'btn-primary' : 'btn-outline-primary'}`}
                 disabled={isStabilizing}
               >
-                {isStabilizing ? '⚡ Stabilizing...' : physicsEnabled ? '⚡ Physics ON' : '🔧 Manual Mode'}
+                {isStabilizing ? '⚡ Stabilizing...' : physicsEnabled ? '🔧 Turn Off Physics' : '⚡ Turn On Physics'}
               </button>
+
+              <button
+                onClick={toggleFullscreen}
+                className={`btn btn-sm ${isFullscreen ? 'btn-success' : 'btn-outline-success'}`}
+              >
+                {isFullscreen ? '🪟 Exit Fullscreen' : '⛶ Fullscreen'}
+              </button>
+
             </div>
           )}
 
-          {/* Graph Description */}
-          <div style={{ color: '#6c757d', fontSize: '0.9rem', marginTop: '0.5rem', textAlign: 'center' }}>
-            {currentGraph === 'unified'
-              ? isPersonalized
-                ? `Personalized view: Your favorite categories (blue) plus related categories (orange) and posts (red boxes). Click posts for details. Double-click expandable nodes to reveal subcategories.`
-                : `AI-powered semantic connections enhanced with shared post analysis including post nodes (red boxes). Click posts for details. Double-click expandable nodes to reveal subcategories.`
-              : currentGraph === 'users'
-              ? 'Shows users connected by shared interests. Connection strength indicates common categories.'
-              : 'Network visualization of your content relationships.'
-            }
-            {!physicsEnabled && (
-              <div style={{ marginTop: '0.5rem', fontWeight: 'bold', color: '#007bff' }}>
-                🔧 Manual Mode: Drag nodes to position them freely. Physics disabled.
-              </div>
-            )}
-          </div>
+          {/* Graph Description - only show in normal mode */}
+          {!isFullscreen && (
+            <div style={{ color: '#6c757d', fontSize: '0.9rem', marginTop: '0.5rem', textAlign: 'center' }}>
+              {currentGraph === 'unified'
+                ? isPersonalized
+                  ? `Personalized view: Your favorite categories (blue) plus related categories (orange) and posts (red boxes). Click posts for details. Double-click expandable nodes to reveal subcategories.`
+                  : `AI-powered semantic connections enhanced with shared post analysis including post nodes (red boxes). Click posts for details. Double-click expandable nodes to reveal subcategories.`
+                : currentGraph === 'users'
+                ? 'Shows users connected by shared interests. Connection strength indicates common categories.'
+                : 'Network visualization of your content relationships.'
+              }
+              {!physicsEnabled && (
+                <div style={{ marginTop: '0.5rem', fontWeight: 'bold', color: '#007bff' }}>
+                  🔧 Manual Mode: Drag nodes to position them freely. Physics disabled.
+                </div>
+              )}
+              {physicsEnabled && (
+                <div style={{ marginTop: '0.5rem', fontWeight: 'bold', color: '#28a745' }}>
+                  ⚡ Physics Mode: Automatic layout with force-directed positioning.
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Legend Modal - only show when toggled */}
           {currentGraph === 'unified' && showLegend && (
@@ -1087,20 +1543,59 @@ const Visualization = () => {
 
         {/* Network Container */}
         {!loading && !error && (
-          <div ref={networkRef} className="visualization-canvas" />
+          <div
+            ref={networkRef}
+            className="visualization-canvas"
+            style={isFullscreen ? {
+              flex: 1,
+              height: 'calc(100vh - 100px)', // More space in fullscreen
+              minHeight: '600px'
+            } : {}}
+          />
+        )}
+
+        {/* Floating Exit Fullscreen Button */}
+        {isFullscreen && (
+          <button
+            onClick={toggleFullscreen}
+            style={{
+              position: 'fixed',
+              top: '20px',
+              right: '20px',
+              backgroundColor: '#dc3545',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '0.75rem 1.5rem',
+              fontSize: '1rem',
+              fontWeight: '500',
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+              zIndex: 10000
+            }}
+            onMouseEnter={(e) => e.target.style.backgroundColor = '#c82333'}
+            onMouseLeave={(e) => e.target.style.backgroundColor = '#dc3545'}
+          >
+            🪟 Exit Fullscreen
+          </button>
         )}
       </div>
 
       {/* Controls Info */}
-      <div className="text-center mt-3" style={{ fontSize: '0.8rem', color: '#6c757d' }}>
-        <strong>Controls:</strong> Drag to pan • Scroll to zoom • Click nodes for details • Hover for information
-        {currentGraph === 'unified' && (
-          <span> • <strong>Double-click expandable nodes</strong> to reveal subcategories • <strong>Click post nodes</strong> for details</span>
-        )}
-        {!physicsEnabled && (
-          <span> • <strong>Drag nodes</strong> to reposition them manually</span>
-        )}
-      </div>
+      {!isFullscreen && (
+        <div className="text-center mt-3" style={{ fontSize: '0.8rem', color: '#6c757d' }}>
+          <strong>Controls:</strong> Drag to pan • Scroll to zoom • Click nodes for details • Hover for information
+          {currentGraph === 'unified' && (
+            <span> • <strong>Double-click expandable nodes</strong> to reveal subcategories • <strong>Click post nodes</strong> for details</span>
+          )}
+          {!physicsEnabled && (
+            <span> • <strong>Drag nodes</strong> to reposition them manually (Manual Mode)</span>
+          )}
+          {physicsEnabled && (
+            <span> • <strong>Physics active</strong> - nodes auto-position with forces</span>
+          )}
+        </div>
+      )}
 
       {/* Post Details Modal */}
       {showPostModal && selectedPost && (
@@ -1187,13 +1682,14 @@ const Visualization = () => {
 
                 <button
                   onClick={() => {
-                    setFocusPostId(selectedPost.post_id);
+                    const postId = selectedPost.post_id;
+                    console.log('🔍 Finding similar posts for:', postId);
                     closePostModal();
-                    fetchGraphData('unified'); // Reload with this post as focus
+                    handleFindSimilarPosts(postId);
                   }}
                   style={{
                     padding: '0.75rem 1.5rem',
-                    backgroundColor: '#28a745',
+                    backgroundColor: '#6f42c1',
                     color: 'white',
                     border: 'none',
                     borderRadius: '8px',
@@ -1202,7 +1698,7 @@ const Visualization = () => {
                     fontWeight: '500'
                   }}
                 >
-                  🎯 Focus on This Post
+                  🔍 Find Similar Posts
                 </button>
               </div>
             </div>
@@ -1210,130 +1706,45 @@ const Visualization = () => {
         </div>
       )}
 
-      {/* Context Menu */}
-      {contextMenu.visible && (
+      {/* Success Toast Notification */}
+      {successMessage && (
         <div
           style={{
             position: 'fixed',
-            top: contextMenu.y,
-            left: contextMenu.x,
-            backgroundColor: 'white',
-            border: '1px solid #ccc',
-            borderRadius: '6px',
+            top: '20px',
+            right: '20px',
+            backgroundColor: '#28a745',
+            color: 'white',
+            padding: '1rem 1.5rem',
+            borderRadius: '8px',
             boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            zIndex: 10000,
-            minWidth: '200px',
-            padding: '8px 0'
+            zIndex: 1000,
+            maxWidth: '400px',
+            fontSize: '0.9rem',
+            fontWeight: '500',
+            animation: 'slideInRight 0.3s ease-out'
           }}
-          onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside menu
         >
-          {contextMenu.nodeType === 'post' && (
-            <>
-              <div
-                style={{
-                  padding: '8px 16px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#f5f5f5'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-                onClick={() => {
-                  const postId = contextMenu.nodeId.replace('post_', '');
-                  handleFindSimilarPosts(postId);
-                }}
-              >
-                🔍 Find Similar Posts
-              </div>
-              <div
-                style={{
-                  padding: '8px 16px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#f5f5f5'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-                onClick={() => handleViewDetails(contextMenu.nodeData, 'post')}
-              >
-                📖 View Post Details
-              </div>
-              <div
-                style={{
-                  padding: '8px 16px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#f5f5f5'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-                onClick={() => handleFocusOnNode(contextMenu.nodeId, 'post')}
-              >
-                🎯 Focus on This Post
-              </div>
-            </>
-          )}
-
-          {contextMenu.nodeType === 'category' && (
-            <>
-              <div
-                style={{
-                  padding: '8px 16px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#f5f5f5'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-                onClick={() => {
-                  const categoryId = contextMenu.nodeId.replace('category_', '');
-                  handleFindSimilarCategories(categoryId);
-                }}
-              >
-                🔍 Find Similar Categories
-              </div>
-              <div
-                style={{
-                  padding: '8px 16px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#f5f5f5'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-                onClick={() => handleViewDetails(contextMenu.nodeData, 'category')}
-              >
-                📂 View Category Details
-              </div>
-              <div
-                style={{
-                  padding: '8px 16px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#f5f5f5'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-                onClick={() => handleFocusOnNode(contextMenu.nodeId, 'category')}
-              >
-                🎯 Focus on This Category
-              </div>
-            </>
-          )}
+          {successMessage}
+          <button
+            onClick={() => setSuccessMessage(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'white',
+              fontSize: '1.2rem',
+              cursor: 'pointer',
+              marginLeft: '1rem',
+              padding: '0'
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
+
+
+      {/* Node menu removed - using overlay buttons instead */}
     </div>
   );
 };

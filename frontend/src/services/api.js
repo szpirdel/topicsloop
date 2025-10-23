@@ -106,8 +106,19 @@ export const fetchPostNetwork = async (params = {}) => {
   if (params.max_posts) queryParams.append('max_posts', params.max_posts);
   if (params.max_connections) queryParams.append('max_connections', params.max_connections);
 
+  // 🚀 OPTIMIZATION: Add method parameter (default: 'fallback' for performance)
+  if (params.method) queryParams.append('method', params.method);
+
+  // 🎯 PERSONALIZATION: Add personalized parameter for favorite categories filtering
+  if (params.personalized !== undefined) queryParams.append('personalized', params.personalized);
+
   const url = `/api/viz/post-network/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-  const response = await publicAPI.get(url);
+
+  // Use authenticated API if personalized mode is enabled and token is available
+  // This allows the backend to identify the user for personalized filtering
+  const token = localStorage.getItem('access_token');
+  const apiInstance = (params.personalized && token) ? axios : publicAPI;
+  const response = await apiInstance.get(url);
   return response.data;
 };
 

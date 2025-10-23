@@ -80,7 +80,7 @@ const Login = () => {
               )}
 
               <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-                Sign In
+                Log in
               </button>
             </form>
 
@@ -91,7 +91,7 @@ const Login = () => {
                 className="btn btn-outline"
                 style={{ padding: '0.25rem 0.75rem', fontSize: '0.9rem' }}
               >
-                Sign Up
+                Register
               </button>
             </div>
           </div>

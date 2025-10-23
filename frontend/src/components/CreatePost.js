@@ -24,11 +24,17 @@ const CreatePost = () => {
           fetchCategoryTree(),
           fetchTags()
         ]);
-        setCategories(categoriesData);
+
+        // Ensure categories is always an array
+        setCategories(Array.isArray(categoriesData) ? categoriesData : []);
         setCategoryTree(categoryTreeData.tree || []);
-        setTags(tagsData);
+        setTags(Array.isArray(tagsData) ? tagsData : []);
       } catch (error) {
         console.error('Error loading form data:', error);
+        // Set default empty arrays on error
+        setCategories([]);
+        setCategoryTree([]);
+        setTags([]);
       } finally {
         setLoading(false);
       }
@@ -161,6 +167,14 @@ const CreatePost = () => {
 
   // Helper function to render flat category list
   const renderFlatCategories = () => {
+    if (!Array.isArray(categories) || categories.length === 0) {
+      return (
+        <div style={{ textAlign: 'center', color: '#6c757d', padding: '2rem' }}>
+          No categories available
+        </div>
+      );
+    }
+
     return categories.map(cat => (
       <label key={cat.id} className="d-flex align-items-center" style={{ cursor: 'pointer', padding: '0.25rem' }}>
         <input
@@ -231,7 +245,7 @@ const CreatePost = () => {
                   required
                 >
                   <option value="">Select primary category</option>
-                  {categories.map(cat => (
+                  {Array.isArray(categories) && categories.map(cat => (
                     <option key={cat.id} value={cat.id}>
                       {cat.full_path || cat.name}
                       {cat.level > 0 && ` (${cat.level === 1 ? 'Subcategory' : 'Sub-subcategory'})`}

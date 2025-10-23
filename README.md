@@ -313,6 +313,30 @@ MIT License - see [LICENSE](LICENSE) file for details.
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+## 📚 Documentation Structure
+
+**IMPORTANT:** This project follows a specific documentation structure that should be maintained:
+
+### **Core Documentation Files:**
+- `README.md` - Project overview and setup (you are here)
+- `CHANGELOG.md` - Version history and release notes
+- `project_backlog.md` - Active sprint work and long-term roadmap
+- `docs/PRODUCT_STRATEGY.md` - Product vision, user journeys, and strategy
+- `docs/API.md` - Complete API documentation
+- `docs/README.md` - Documentation index
+
+### **Documentation Policy:**
+
+⚠️ **Before creating, modifying, or deleting any .md files:**
+1. **Always ask for approval first**
+2. **Discuss the purpose and placement** with the project owner
+3. **Consider if the content fits into existing documents**
+4. **Avoid creating new files without explicit agreement**
+
+This policy prevents documentation sprawl and maintains a clean, organized structure. All documentation changes should be discussed and agreed upon by both the developer and project owner before implementation.
+
+**Last Documentation Review:** 2025-10-15
+
 ## 📧 Contact
 
 For questions, suggestions, or collaboration opportunities, please open an issue or reach out via the repository.
