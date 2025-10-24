@@ -48,7 +48,7 @@ INSTALLED_APPS = [
     'djoser',
     'accounts',
     'ai_models',  # AI-enhanced data models
-    'gnn_models',  # Graph Neural Networks
+    # 'gnn_models',  # Graph Neural Networks - commented out: no Django models, missing migrations folder
 ]
 
 STATIC_URL = '/static/'
