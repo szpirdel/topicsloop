@@ -43,6 +43,55 @@ class Category(models.Model):
             subcats.extend(subcat.get_all_subcategories())
         return subcats
 
+    def get_recursive_post_count(self, use_cache=True):
+        """
+        Get total post count including all subcategories recursively
+        Returns count of UNIQUE posts that have this category OR any of its children
+        as primary or additional category
+
+        Note: Uses distinct() so a post in multiple subcategories is counted once.
+        Per-category counts may sum to more than the recursive total due to overlaps.
+
+        Args:
+            use_cache: If True, use cached value (default: True)
+        """
+        from django.core.cache import cache
+        from django.db.models import Q
+
+        # Try cache first
+        if use_cache:
+            cache_key = f'category_post_count_{self.id}'
+            cached_count = cache.get(cache_key)
+            if cached_count is not None:
+                return cached_count
+
+        # Get all descendant category IDs (this category + all children recursively)
+        all_category_ids = [self.id]
+        all_subcategories = self.get_all_subcategories()
+        all_category_ids.extend([cat.id for cat in all_subcategories])
+
+        # Count posts that have ANY of these categories (primary or additional)
+        post_count = Post.objects.filter(
+            Q(primary_category_id__in=all_category_ids) |
+            Q(additional_categories__id__in=all_category_ids)
+        ).distinct().count()
+
+        # Cache for 30 minutes
+        if use_cache:
+            cache_key = f'category_post_count_{self.id}'
+            cache.set(cache_key, post_count, 1800)  # 1800 seconds = 30 min
+
+        return post_count
+
+    @classmethod
+    def clear_post_count_cache(cls):
+        """Clear all category post count caches"""
+        from django.core.cache import cache
+        # Clear cache for all categories
+        for category in cls.objects.all():
+            cache_key = f'category_post_count_{category.id}'
+            cache.delete(cache_key)
+
     def is_subcategory_of(self, category):
         """Check if this category is a subcategory of given category"""
         if self.parent == category:
@@ -132,6 +181,25 @@ class Post(models.Model):
         self.__class__.objects.filter(pk=self.pk).update(
             search_vector=SearchVector('title', weight='A') + SearchVector('content', weight='B')
         )
+
+        # Clear category post count cache when post is saved
+        # (affects primary category and all its parents)
+        if self.primary_category:
+            self._clear_category_tree_cache(self.primary_category)
+
+        # Also clear for additional categories
+        for category in self.additional_categories.all():
+            self._clear_category_tree_cache(category)
+
+    def _clear_category_tree_cache(self, category):
+        """Clear cache for a category and all its parents"""
+        from django.core.cache import cache
+
+        current = category
+        while current:
+            cache_key = f'category_post_count_{current.id}'
+            cache.delete(cache_key)
+            current = current.parent
 
 class Comment(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comments')

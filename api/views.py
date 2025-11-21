@@ -236,7 +236,7 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
         """
         max_depth = request.query_params.get('max_depth')
         parent_id = request.query_params.get('parent_id')
-        include_empty = request.query_params.get('include_empty', 'false').lower() == 'true'
+        include_empty = request.query_params.get('include_empty', 'true').lower() == 'true'  # Default TRUE for MVP (no posts yet!)
 
         if max_depth:
             try:
@@ -272,13 +272,16 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
 
         def build_tree_node(category, current_depth=0):
             """Recursively build tree structure"""
+            # Use recursive post count (includes all subcategories)
+            recursive_post_count = category.get_recursive_post_count()
+
             node = {
                 'id': category.id,
                 'name': category.name,
                 'description': category.description,
                 'level': category.level,
-                'post_count': category.post_count,
-                'subcategory_count': category.subcategory_count,
+                'post_count': recursive_post_count,  # Changed to use recursive count
+                'subcategory_count': getattr(category, 'subcategory_count', category.subcategories.count()),
                 'full_path': category.get_full_path(),
                 'has_subcategories': category.subcategories.exists(),
                 'children': []
@@ -286,15 +289,15 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
 
             # Only recurse if we haven't hit max depth
             if max_depth is None or current_depth < max_depth:
-                subcategories = category.subcategories.annotate(
-                    post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True),
-                    subcategory_count=Count('subcategories', distinct=True)
-                )
+                subcategories = category.subcategories.all()
 
+                # Filter empty categories if requested
                 if not include_empty:
-                    subcategories = subcategories.filter(post_count__gt=0)
+                    subcategories = [sc for sc in subcategories if sc.get_recursive_post_count() > 0]
+                else:
+                    subcategories = list(subcategories)
 
-                for subcat in subcategories.order_by('name'):
+                for subcat in sorted(subcategories, key=lambda x: x.name):
                     node['children'].append(build_tree_node(subcat, current_depth + 1))
 
             return node
@@ -551,10 +554,10 @@ class SimilarPostsView(APIView):
             # Get the target post
             target_post = get_object_or_404(Post, id=post_id)
 
-            # Get similarity threshold from query params (default 0.7)
-            threshold = float(request.GET.get('threshold', 0.7))
+            # Get similarity threshold from query params (default 0.3 for semantic embeddings)
+            threshold = float(request.GET.get('threshold', 0.3))
             algorithm = request.GET.get('algorithm', 'cosine')
-            method = request.GET.get('method', 'fallback')  # 'gnn' or 'fallback'
+            method = request.GET.get('method', 'gnn')  # 'gnn' or 'fallback' - use embeddings by default
             limit = int(request.GET.get('limit', 10))
 
             # Initialize GNN manager if not already done
@@ -1722,6 +1725,7 @@ class UnifiedCategoryNetworkView(APIView):
                         'label': post.title[:40] + ('...' if len(post.title) > 40 else ''),
                         'type': 'post',
                         'post_id': post.id,
+                        'category_id': post.primary_category_id,  # 🎯 Category ID for circular layout
                         'title': f'📄 {post.title}\n👤 {post.author.username}\n📅 {post.created_at.strftime("%Y-%m-%d")}\n📂 {post.primary_category.name if post.primary_category else "No category"}',
                         'shape': 'box',
                         'size': 25 if is_focus else 18,
@@ -1907,6 +1911,9 @@ class PostNetworkView(APIView):
         - max_connections: max connections per post (default: 5)
         """
         try:
+            from django.core.cache import cache
+            import hashlib
+
             # === 🔧 PARAMETRY ===
             focus_post_id = request.GET.get('focus_post_id')
             category_id = request.GET.get('category_id')
@@ -1916,6 +1923,25 @@ class PostNetworkView(APIView):
             max_connections = int(request.GET.get('max_connections', 5))
             method = request.GET.get('method', 'fallback')  # 🚀 OPTIMIZATION: 'gnn' or 'fallback'
             personalized = request.GET.get('personalized', 'false').lower() == 'true'
+
+            # === 🚀 CACHE KEY ===
+            # Generate cache key from parameters (skip if personalized - user-specific)
+            cache_key = None
+            if not personalized and not focus_post_id:  # Only cache non-personalized, non-focus views
+                cache_params = f"{category_id}:{include_posts}:{similarity_threshold}:{max_posts}:{max_connections}:{method}"
+                cache_hash = hashlib.md5(cache_params.encode()).hexdigest()
+                cache_key = f"post_network:{cache_hash}"
+
+                # Try to get from cache
+                cached_response = cache.get(cache_key)
+                if cached_response:
+                    print(f"⚡ Cache HIT for post network: {cache_key}")
+                    logger.info(f"⚡ Cache HIT for post network: {cache_key}")
+                    cached_response['stats']['cached'] = True  # Mark as cached
+                    return Response(cached_response)
+
+                print(f"💾 Cache MISS for post network: {cache_key}")
+                logger.info(f"💾 Cache MISS for post network: {cache_key}")
 
             logger.info(f"🎯 Post Network: focus={focus_post_id}, category={category_id}, "
                        f"method={method}, threshold={similarity_threshold}, max_posts={max_posts}, personalized={personalized}")
@@ -1952,19 +1978,51 @@ class PostNetworkView(APIView):
                             # No favorites set, fall back to default
                             categories = Category.objects.annotate(
                                 post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True)
-                            ).filter(post_count__gte=2).order_by('-post_count')[:10]
+                            ).filter(post_count__gte=1).order_by('-post_count')[:20]
                             logger.info(f"⚠️ No favorite categories found, using default top categories")
                     except Exception as e:
                         logger.warning(f"❌ Failed to get user favorites: {e}")
                         # Fall back to default
                         categories = Category.objects.annotate(
                             post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True)
-                        ).filter(post_count__gte=2).order_by('-post_count')[:10]
+                        ).filter(post_count__gte=1).order_by('-post_count')[:20]
                 else:
                     # Get main categories with most posts (default behavior)
+                    # 🔧 FIX: Changed from post_count__gte=2 to post_count__gte=1 to show all categories with posts
                     categories = Category.objects.annotate(
                         post_count=Count('post', distinct=True) + Count('secondary_posts', distinct=True)
-                    ).filter(post_count__gte=2).order_by('-post_count')[:10]
+                    ).filter(post_count__gte=1).order_by('-post_count')[:20]  # Increased from 10 to 20
+
+            # 🎯 ENSURE ALL L0 CATEGORIES ARE INCLUDED
+            # Main categories (L0) often have 0 direct posts but posts in subcategories
+            categories = list(categories)
+            category_ids = set(c.id for c in categories)
+
+            l0_categories = Category.objects.filter(parent__isnull=True)
+            l0_to_add = [c for c in l0_categories if c.id not in category_ids]
+            if l0_to_add:
+                categories.extend(l0_to_add)
+                category_ids.update(c.id for c in l0_to_add)
+                logger.info(f"🔵 Added {len(l0_to_add)} L0 categories for complete hierarchy")
+
+            # 🎯 ENSURE ALL PARENT CATEGORIES ARE INCLUDED (including intermediate L1)
+            # Add all parent categories to ensure proper circular layout grouping
+            parents_to_add = []
+            for category in list(categories):  # Use list() to avoid modifying during iteration
+                current = category.parent
+                while current and current.id not in category_ids:
+                    parents_to_add.append(current)
+                    category_ids.add(current.id)
+                    current = current.parent
+
+            if parents_to_add:
+                categories.extend(parents_to_add)
+                logger.info(f"🔗 Added {len(parents_to_add)} parent categories (including L1 intermediates) for proper hierarchy")
+
+            # Log category distribution by level
+            from collections import Counter
+            level_counts = Counter(cat.level for cat in categories)
+            logger.info(f"📊 Category distribution: {dict(level_counts)}")
 
             # Color palette for categories - distinct, vibrant colors
             category_colors = [
@@ -1992,7 +2050,7 @@ class PostNetworkView(APIView):
                 if root_category.id not in root_category_colors:
                     root_categories_found.append(root_category)
                     root_category_colors[root_category.id] = category_colors[
-                        len(root_categories_found) - 1 % len(category_colors)
+                        (len(root_categories_found) - 1) % len(category_colors)
                     ]
 
             # Second pass: assign colors to all categories based on their root
@@ -2001,34 +2059,75 @@ class PostNetworkView(APIView):
                 # All categories (including subcategories) get their root's color
                 category_color_map[category.id] = root_category_colors[root_category.id]
 
-            # Create category nodes - VERY LARGE and prominent (75% bigger)
+            # Create category nodes - size based on post count, level-aware
             for category in categories:
                 color = category_color_map[category.id]
+
+                # 📊 Get recursive post count for size mapping
+                post_count = category.get_recursive_post_count(use_cache=True)
+
+                # 🎯 DYNAMIC LEVEL CALCULATION: Calculate level from parent hierarchy
+                # This ensures all categories have a level, even if not set in DB
+                current_level = 0
+                current_category = category
+                while current_category.parent:
+                    current_level += 1
+                    current_category = current_category.parent
+
+                # Override DB level with calculated level if DB level is missing or incorrect
+                category_level = current_level
+                # 🔍 DEBUG
+                print(f"🔍 Category: {category.name}, calculated level: {category_level}, DB level: {category.level}, parent: {category.parent}")
+
+                # 📏 Size mapping: size proportional to post_count
+                # Formula: size = sqrt(post_count) * multiplier + base_size
+                # This makes size grow sublinearly (larger categories don't dominate too much)
+                base_size = 15  # Smaller base for better contrast
+                size_multiplier = 15  # Higher multiplier for more visible differences
+                node_size = int((post_count ** 0.5) * size_multiplier + base_size)
+                # Cap max size to avoid huge nodes
+                node_size = min(node_size, 150)
+
+                # 🔤 Font size based on category level (L1 larger, L2/L3 smaller)
+                if category_level == 0:  # L1 - main categories
+                    font_size = 22
+                    font_bold = True
+                elif category_level == 1:  # L2 - subcategories
+                    font_size = 18
+                    font_bold = False
+                else:  # L3+ - sub-subcategories
+                    font_size = 16
+                    font_bold = False
+
                 nodes.append({
                     'id': f'category_{category.id}',
                     'label': category.name,
                     'type': 'category',
-                    'category_id': category.id,  # Store category_id for posts to reference
-                    'title': f'📂 {category.name}\n{category.description}',
+                    'category_id': category.id,
+                    'parent_id': category.parent_id,  # 🎯 Parent ID for circular layout
+                    'level': category_level,  # 🎯 Dynamically calculated level for progressive loading
+                    'post_count': post_count,  # 📊 Add post count
+                    'title': f'📂 {category.name}\n{category.description}\n📄 {post_count} posts',
                     'shape': 'dot',
-                    'size': 70,  # 75% bigger than 40 (was 40 → now 70)
+                    'size': node_size,  # 📏 Dynamic size based on post count
                     'color': {
                         'background': color['bg'],
                         'border': color['border']
                     },
-                    'borderWidth': 5,  # Even thicker border
+                    'borderWidth': 3 + category_level,  # Thicker border for higher levels
                     'font': {
-                        'size': 20,  # Larger font (was 18)
+                        'size': font_size,
                         'face': 'arial',
-                        'bold': True
+                        'bold': font_bold
                     },
                     'physics': True,
-                    'mass': 5  # Heavier mass (was 3)
+                    'mass': 3 + (post_count / 10)  # Mass proportional to content
                 })
 
             # === 📄 KROK 2: POST NODES (jeśli włączone) ===
+            additional_categories_for_posts = set()  # Track categories needed for posts
             if include_posts:
-                posts_query = Post.objects.select_related('primary_category', 'author')
+                posts_query = Post.objects.select_related('primary_category', 'author').prefetch_related('additional_categories')
 
                 if category_id:
                     # Posts from specific category
@@ -2076,7 +2175,7 @@ class PostNetworkView(APIView):
                         # Get recent posts from this category
                         category_posts = Post.objects.filter(
                             Q(primary_category=category) | Q(additional_categories=category)
-                        ).select_related('primary_category', 'author').distinct().order_by('-created_at')[:posts_per_category]
+                        ).select_related('primary_category', 'author').prefetch_related('additional_categories').distinct().order_by('-created_at')[:posts_per_category]
 
                         added_count = 0
                         for post in category_posts:
@@ -2096,7 +2195,7 @@ class PostNetworkView(APIView):
                         post_ids = list(posts_dict.keys())
                         additional_posts = Post.objects.exclude(id__in=post_ids).select_related(
                             'primary_category', 'author'
-                        ).order_by('-created_at')[:remaining]
+                        ).prefetch_related('additional_categories').order_by('-created_at')[:remaining]
                         posts.extend(list(additional_posts))
 
                     # Limit to max_posts
@@ -2188,6 +2287,7 @@ class PostNetworkView(APIView):
                         'label': post.title[:30] + ('...' if len(post.title) > 30 else ''),
                         'type': 'post',
                         'post_id': post.id,
+                        'category_id': post.primary_category_id,  # 🎯 Category ID for circular layout
                         'title': f'📄 {post.title}\n👤 {post.author.username}\n📅 {post.created_at.strftime("%Y-%m-%d")}\n📂 {post.primary_category.name if post.primary_category else "No category"}',
                         'shape': 'box',
                         'size': 30 if is_focus else 20,
@@ -2207,6 +2307,104 @@ class PostNetworkView(APIView):
                         post_node['y'] = y_pos
 
                     nodes.append(post_node)
+
+                    # Track categories needed for post connections
+                    if post.primary_category:
+                        additional_categories_for_posts.add(post.primary_category.id)
+                    for additional_cat in post.additional_categories.all():
+                        additional_categories_for_posts.add(additional_cat.id)
+
+                # === 🔧 ADD MISSING CATEGORY NODES ===
+                # Add category nodes for posts that don't have their categories in top 20
+                existing_category_ids = {int(n['category_id']) for n in nodes if n.get('type') == 'category'}
+                missing_category_ids = additional_categories_for_posts - existing_category_ids
+
+                if missing_category_ids:
+                    missing_categories = Category.objects.filter(id__in=missing_category_ids)
+                    logger.info(f"📂 Adding {len(missing_categories)} missing category nodes for post connections")
+
+                    # 🎯 Also add parents of missing categories
+                    parents_of_missing = []
+                    for category in missing_categories:
+                        current = category.parent
+                        while current and current.id not in category_ids and current.id not in missing_category_ids:
+                            if current.id not in {p.id for p in parents_of_missing}:
+                                parents_of_missing.append(current)
+                            category_ids.add(current.id)
+                            current = current.parent
+
+                    if parents_of_missing:
+                        missing_categories = list(missing_categories) + parents_of_missing
+                        logger.info(f"🔗 Added {len(parents_of_missing)} parent categories for missing categories")
+
+                    for category in missing_categories:
+                        # Determine color based on root category
+                        root_category = category.get_root_category()
+                        if root_category.id in root_category_colors:
+                            color = root_category_colors[root_category.id]
+                        else:
+                            # Assign new color if needed
+                            if root_category.id not in root_category_colors:
+                                color_index = len(root_category_colors) % len(category_colors)
+                                root_category_colors[root_category.id] = category_colors[color_index]
+                                color = root_category_colors[root_category.id]
+                            else:
+                                color = root_category_colors[root_category.id]
+
+                        category_color_map[category.id] = color
+
+                        # 📊 Get recursive post count for size mapping (same as main loop)
+                        post_count = category.get_recursive_post_count(use_cache=True)
+
+                        # 🎯 DYNAMIC LEVEL CALCULATION (same as main loop)
+                        current_level = 0
+                        current_category = category
+                        while current_category.parent:
+                            current_level += 1
+                            current_category = current_category.parent
+                        category_level = current_level
+
+                        # 📏 Size mapping (same as main loop)
+                        base_size = 15
+                        size_multiplier = 15
+                        node_size = int((post_count ** 0.5) * size_multiplier + base_size)
+                        node_size = min(node_size, 150)
+
+                        # 🔤 Font size based on category level (same as main loop)
+                        if category_level == 0:
+                            font_size = 22
+                            font_bold = True
+                        elif category_level == 1:
+                            font_size = 18
+                            font_bold = False
+                        else:
+                            font_size = 16
+                            font_bold = False
+
+                        nodes.append({
+                            'id': f'category_{category.id}',
+                            'label': category.name,
+                            'type': 'category',
+                            'category_id': category.id,
+                            'parent_id': category.parent_id,  # 🎯 Parent ID for circular layout
+                            'level': category_level,  # 🎯 Add level!
+                            'post_count': post_count,  # 📊 Add post count!
+                            'title': f'📂 {category.name}\n{category.description}\n📄 {post_count} posts',
+                            'shape': 'dot',
+                            'size': node_size,  # 📏 Dynamic size!
+                            'color': {
+                                'background': color['bg'],
+                                'border': color['border']
+                            },
+                            'borderWidth': 3 + category_level,  # Dynamic border!
+                            'font': {
+                                'size': font_size,  # Dynamic font!
+                                'face': 'arial',
+                                'bold': font_bold
+                            },
+                            'physics': True,
+                            'mass': 3 + (post_count / 10)  # Dynamic mass!
+                        })
 
                 # === 🔗 KROK 3: POST-CATEGORY CONNECTIONS ===
                 # Connect posts to their categories (avoid duplicates)
@@ -2299,7 +2497,7 @@ class PostNetworkView(APIView):
                         logger.warning(f"Post similarity connections failed: {e}")
 
             # === 📤 RESPONSE ===
-            return Response({
+            response_data = {
                 'nodes': nodes,
                 'edges': edges,
                 'stats': {
@@ -2313,9 +2511,19 @@ class PostNetworkView(APIView):
                     'max_posts': max_posts,
                     'method_used': method,  # 🚀 OPTIMIZATION: Track which method was requested
                     'gnn_used': method == 'gnn',  # 🚀 OPTIMIZATION: Track if GNN was actually used
-                    'embeddings_available': bool(gnn_manager and gnn_manager.embedding_manager and gnn_manager.embedding_manager.available)
+                    'embeddings_available': bool(gnn_manager and gnn_manager.embedding_manager and gnn_manager.embedding_manager.available),
+                    'cached': False  # Indicate this was freshly generated
                 }
-            })
+            }
+
+            # === 🚀 SAVE TO CACHE ===
+            if cache_key:
+                # Cache for 5 minutes (300 seconds)
+                cache.set(cache_key, response_data, 300)
+                print(f"💾 Saved to cache: {cache_key}")
+                logger.info(f"💾 Saved to cache: {cache_key}")
+
+            return Response(response_data)
 
         except Exception as e:
             logger.error(f"💥 Post network generation failed: {e}")

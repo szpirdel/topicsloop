@@ -1,6 +1,6 @@
 # TopicsLoop - Active Development Backlog
 
-**Last Updated:** 2025-10-22
+**Last Updated:** 2025-10-24
 **Sprint:** October 2025 - Hierarchical Foundation Sprint
 **Current Version:** 0.2.0
 **Next Target:** 0.3.0
@@ -20,6 +20,7 @@
   - [4.2. Zoom-Based Progressive Disclosure](#42-zoom-based-progressive-disclosure)
   - [4.3. Basic Test Suite Foundation](#43-basic-test-suite-foundation)
   - [4.4. Error Handling & Logging Improvements](#44-error-handling--logging-improvements)
+  - [4.5. AI/ML System Tuning & Integration](#45-aiml-system-tuning--integration)
 - [5. Medium Priority Tasks (Next Sprint)](#5-medium-priority-tasks-next-sprint)
   - [5.1. Explainable AI Similarities](#51-explainable-ai-similarities)
   - [5.2. Code Refactoring - api/views.py](#52-code-refactoring---apiviewspy)
@@ -252,6 +253,212 @@ Science
 - `topicsloop/settings.py` (logging config)
 - `frontend/src/components/ErrorBoundary.js` (new)
 - `api/views.py` (error handling)
+
+---
+
+### 4.5. AI/ML System Tuning & Integration
+
+**Status:** 📋 Critical for MVP
+**Estimate:** 12-16 hours (split across MVP phases)
+**Priority:** HIGH - Unlocks platform's core value proposition
+
+**Goal:** Optimize and integrate AI stack (sentence-transformers + PyTorch Geometric + GNN) to deliver accurate, fast content discovery
+
+---
+
+#### **Phase 1: AI Performance Audit & Quick Wins (4-5 hours)** ⚡
+**Priority:** P0 - Do this FIRST for MVP
+
+**Context:** Currently using sentence-transformers (all-MiniLM-L6-v2) for embeddings. Need to verify it's optimal and cache results.
+
+**Tasks:**
+- [ ] **Benchmark current embedding performance** (1 hour)
+  - Measure: Time to embed 100 posts
+  - Measure: Memory usage during inference
+  - Measure: Similarity calculation speed
+  - Document baseline metrics
+
+- [ ] **Implement embedding caching in database** (2-3 hours)
+  - Add `embedding` field to Post model (JSONField or BinaryField)
+  - Generate embeddings on post creation/update only
+  - Serve from cache for similarity calculations
+  - Migration + testing
+
+- [ ] **Tune similarity thresholds** (1 hour)
+  - Test different cosine similarity thresholds (0.3, 0.5, 0.7)
+  - Find sweet spot: not too many "similar" posts, not too few
+  - Make configurable via settings
+  - Document chosen threshold + reasoning
+
+**Expected Impact:**
+- 🚀 10-50x faster similarity queries (cache vs. real-time embedding)
+- 💾 Reduced memory usage (embed once, cache forever)
+- 🎯 Better "similar posts" quality (tuned threshold)
+
+**Deliverables:**
+- Performance baseline document
+- Database migration for embedding cache
+- Configurable similarity threshold setting
+- Before/after performance comparison
+
+**Files to Modify:**
+- `blog/models.py` - Add embedding field
+- `gnn_models/embeddings.py` - Cache logic
+- `api/views.py` - Use cached embeddings
+- `topicsloop/settings.py` - Similarity threshold config
+
+---
+
+#### **Phase 2: Model Selection & Optimization (3-4 hours)** 🔬
+**Priority:** P1 - After Phase 1, before v0.3.0 release
+
+**Context:** all-MiniLM-L6-v2 is fast (384-dim) but less accurate. Consider trade-offs.
+
+**Tasks:**
+- [ ] **Compare sentence-transformer models** (2 hours)
+  - Test models:
+    - `all-MiniLM-L6-v2` (current, 384-dim, fast)
+    - `all-mpnet-base-v2` (768-dim, slower, more accurate)
+    - `paraphrase-multilingual-MiniLM-L12-v2` (if Polish support needed)
+  - Metrics: accuracy (manual evaluation on 20 post pairs), speed, size
+  - Create comparison matrix
+
+- [ ] **Optimize inference performance** (1-2 hours)
+  - Batch embedding generation (process 10+ posts at once)
+  - Use CPU efficiently (torch.set_num_threads)
+  - Consider quantization for smaller model size
+  - Profile and document optimizations
+
+**Decision Point:** Stay with MiniLM or upgrade to mpnet?
+- MiniLM: Good enough for MVP, 2x faster
+- mpnet: Better accuracy, worth it if speed acceptable
+
+**Deliverables:**
+- Model comparison report with benchmarks
+- Recommended model choice + justification
+- Optimized inference code (batching, threading)
+- Updated documentation
+
+**Files to Modify:**
+- `gnn_models/embeddings.py` - Model selection, batching
+- `topicsloop/settings.py` - Model name config
+- `requirements.txt` - If switching models
+
+---
+
+#### **Phase 3: GNN Integration Preparation (5-7 hours)** 🧠
+**Priority:** P2 - For v0.4.0, NOT blocking MVP
+
+**Context:** You have GNN architecture (`PostGraphConv`, `CategoryGraphConv`) but it's not trained or integrated. This is advanced work.
+
+**Tasks:**
+- [ ] **Audit existing GNN code** (1 hour)
+  - Review `gnn_models/models.py` - architecture looks good
+  - Review `gnn_models/integration.py` - check graph building
+  - Review `gnn_models/training.py` - training pipeline
+  - Identify what's missing for production use
+
+- [ ] **Create GNN training pipeline** (3-4 hours)
+  - Define training task: link prediction (predict post similarities)
+  - Create dataset from existing posts + similarities
+  - Implement training loop with validation
+  - Save trained model checkpoints
+  - Document hyperparameters
+
+- [ ] **Integrate GNN into inference pipeline** (2 hours)
+  - Load trained GNN model
+  - Pipeline: text → sentence-transformers → GNN → final embedding
+  - A/B test: sentence-transformers only vs. full pipeline
+  - Measure improvement in similarity quality
+
+**Decision Point:** Is GNN worth the complexity?
+- If yes: Better similarities, graph-aware recommendations
+- If no: Stick with sentence-transformers for simplicity
+
+**Deliverables:**
+- Trained GNN model checkpoint
+- Training script + hyperparameters
+- Integration code (optional, can be feature-flagged)
+- A/B test results comparing approaches
+
+**Files to Modify:**
+- `gnn_models/training.py` - Complete training pipeline
+- `gnn_models/integration.py` - Inference integration
+- `api/views.py` - Optional GNN-powered endpoints
+- `topicsloop/settings.py` - Feature flag for GNN
+
+---
+
+#### **Phase 4: Production Readiness (Future - v1.0)** 🚀
+**Priority:** P3 - Long-term, not for MVP
+
+**Tasks (for reference, don't implement now):**
+- [ ] Fine-tune models on TopicsLoop-specific data
+- [ ] Multi-modal embeddings (text + tags + category hierarchy)
+- [ ] Advanced GNN architectures (GAT with hierarchical attention)
+- [ ] Real-time model updates based on user feedback
+- [ ] GPU optimization for production inference
+- [ ] Model versioning and A/B testing framework
+
+---
+
+#### **Success Criteria for AI/ML Tuning**
+
+**Phase 1 (MVP Must-Have):**
+- ✅ Embeddings cached in database
+- ✅ Similarity queries < 100ms (vs. 1s+ without cache)
+- ✅ "Similar posts" feel relevant (manual check on 20 examples)
+- ✅ No out-of-memory errors with 1000+ posts
+
+**Phase 2 (v0.3.0 Should-Have):**
+- ✅ Model comparison completed, best model chosen
+- ✅ Batch inference implemented
+- ✅ Inference performance documented
+
+**Phase 3 (v0.4.0 Nice-to-Have):**
+- ✅ GNN trained on real data
+- ✅ GNN improves similarity quality (measurable)
+- ✅ A/B test shows user preference for GNN results
+
+---
+
+#### **Resources & References**
+
+**Sentence-Transformers:**
+- [Model comparison](https://www.sbert.net/docs/pretrained_models.html)
+- [Performance optimization](https://www.sbert.net/docs/usage/computing_sentence_embeddings.html#performance)
+
+**PyTorch Geometric:**
+- [GNN tutorial](https://pytorch-geometric.readthedocs.io/en/latest/tutorial/create_gnn.html)
+- [Link prediction examples](https://github.com/pyg-team/pytorch_geometric/tree/master/examples)
+
+**Evaluation:**
+- [Information Retrieval metrics](https://en.wikipedia.org/wiki/Evaluation_measures_(information_retrieval))
+- Manual evaluation (qualitative assessment by you!)
+
+---
+
+#### **Key Technical Decisions**
+
+**Decision 1: Model Choice**
+- **Options:** MiniLM (fast) vs. mpnet (accurate) vs. multilingual (Polish)
+- **Recommendation:** Start MiniLM, switch if accuracy lacking
+- **Why:** MVP speed > perfection, can iterate
+
+**Decision 2: GNN Integration**
+- **Options:** (A) sentence-transformers only, (B) sentence-transformers + GNN
+- **Recommendation:** (A) for MVP, (B) for v0.4.0
+- **Why:** GNN requires training data, adds complexity, delay until have users
+
+**Decision 3: Caching Strategy**
+- **Options:** DB cache vs. Redis vs. in-memory
+- **Recommendation:** DB cache (PostgreSQL JSONField)
+- **Why:** Simplest, persistent, no extra infrastructure
+
+**Decision 4: Similarity Threshold**
+- **Options:** 0.3 (loose) vs. 0.5 (moderate) vs. 0.7 (strict)
+- **Recommendation:** Start 0.5, make configurable
+- **Why:** Balance between discovery (find connections) and relevance (avoid noise)
 
 ---
 

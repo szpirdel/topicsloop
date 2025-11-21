@@ -48,10 +48,21 @@ INSTALLED_APPS = [
     'djoser',
     'accounts',
     'ai_models',  # AI-enhanced data models
-    # 'gnn_models',  # Graph Neural Networks - commented out: no Django models, missing migrations folder
+    'gnn_models',  # Graph Neural Networks - embeddings and management commands
 ]
 
 STATIC_URL = '/static/'
+
+# Cache configuration
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'topicsloop-cache',
+        'OPTIONS': {
+            'MAX_ENTRIES': 10000,  # Maximum number of cache entries
+        }
+    }
+}
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'frontend/build/static'),

@@ -35,6 +35,13 @@ body {
   flex: 1;
 }
 
+/* Full-width layout for visualization page */
+.content-container.visualization-page {
+  max-width: 100%;
+  padding: 0;
+  margin: 0;
+}
+
 /* Card Components */
 .card {
   background: white;
@@ -277,18 +284,17 @@ body {
 }
 
 .visualization-controls {
-  padding: 1.5rem;
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-  flex-wrap: wrap;
+  /* Minimal styling - only for positioning fullscreen button */
+  position: relative;
+  height: 0;
+  overflow: visible;
 }
 
 .visualization-canvas {
-  height: 600px;
+  height: calc(100vh - 120px);  /* Full viewport height minus header */
+  min-height: 600px;
   position: relative;
+  width: 100%;
 }
 
 /* Profile Styles */

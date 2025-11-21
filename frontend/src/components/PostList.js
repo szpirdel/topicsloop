@@ -36,72 +36,72 @@ const PostsSearchComponent = () => {
 
   return (
     <div className="posts-search-container" style={{
-      marginBottom: '2rem',
-      padding: '1.5rem',
-      backgroundColor: '#f8f9fa',
-      borderRadius: '8px',
+      marginBottom: '1rem',
+      padding: '0.75rem 1rem',
+      backgroundColor: 'transparent',
+      borderRadius: '6px',
       border: '1px solid #e9ecef'
     }}>
       <form onSubmit={handleSearch} style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '0.75rem',
-        maxWidth: '600px',
+        gap: '0.5rem',
+        maxWidth: '500px',
         margin: '0 auto'
       }}>
         <input
           type="text"
-          placeholder="Search posts by title or content..."
+          placeholder="Search your posts..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{
-            padding: '0.75rem 1rem',
-            border: '2px solid #dee2e6',
-            borderRadius: '8px',
-            fontSize: '1rem',
+            padding: '0.5rem 0.75rem',
+            border: '1px solid #dee2e6',
+            borderRadius: '6px',
+            fontSize: '0.9rem',
             flex: 1,
             outline: 'none',
             transition: 'border-color 0.2s ease'
           }}
-          onFocus={(e) => e.target.style.borderColor = '#007bff'}
+          onFocus={(e) => e.target.style.borderColor = '#667eea'}
           onBlur={(e) => e.target.style.borderColor = '#dee2e6'}
         />
         <button
           type="submit"
           style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: '#007bff',
+            padding: '0.5rem 1rem',
+            backgroundColor: '#667eea',
             color: 'white',
             border: 'none',
-            borderRadius: '8px',
+            borderRadius: '6px',
             cursor: 'pointer',
-            fontSize: '1rem',
+            fontSize: '0.9rem',
             fontWeight: '500',
             transition: 'background-color 0.2s ease'
           }}
-          onMouseOver={(e) => e.target.style.backgroundColor = '#0056b3'}
-          onMouseOut={(e) => e.target.style.backgroundColor = '#007bff'}
+          onMouseOver={(e) => e.target.style.backgroundColor = '#5568d3'}
+          onMouseOut={(e) => e.target.style.backgroundColor = '#667eea'}
         >
-          🔍 Search
+          🔍
         </button>
         {searchQuery && (
           <button
             type="button"
             onClick={handleClearSearch}
             style={{
-              padding: '0.75rem 1rem',
-              backgroundColor: '#6c757d',
-              color: 'white',
+              padding: '0.5rem 0.75rem',
+              backgroundColor: '#e9ecef',
+              color: '#6c757d',
               border: 'none',
-              borderRadius: '8px',
+              borderRadius: '6px',
               cursor: 'pointer',
-              fontSize: '1rem',
+              fontSize: '0.9rem',
               transition: 'background-color 0.2s ease'
             }}
-            onMouseOver={(e) => e.target.style.backgroundColor = '#545b62'}
-            onMouseOut={(e) => e.target.style.backgroundColor = '#6c757d'}
+            onMouseOver={(e) => e.target.style.backgroundColor = '#dee2e6'}
+            onMouseOut={(e) => e.target.style.backgroundColor = '#e9ecef'}
           >
-            ✕ Clear
+            ✕
           </button>
         )}
       </form>
@@ -252,7 +252,7 @@ const PostList = () => {
           {searchQuery ? `Search Results for "${searchQuery}"` :
            categoryFilter ? 'Filtered Posts' :
            showAll ? 'All Posts' :
-           isAuthenticated ? 'Posts Based on Your Interests' : 'Posts Based on Your Interests (Log in to Personalize)'}
+           isAuthenticated ? 'Your Interests Content' : 'Your Interests Content (Log in to Personalize)'}
         </h1>
         <div style={{ color: '#6c757d', fontSize: '0.9rem' }}>
           {pagination ?
@@ -272,8 +272,71 @@ const PostList = () => {
         </div>
       </div>
 
-      {/* Search Component positioned right after the title */}
-      <PostsSearchComponent />
+      {/* Search Component - only show if user has favorite categories */}
+      {isAuthenticated && userProfile?.favorite_categories?.length > 0 && (
+        <PostsSearchComponent />
+      )}
+
+      {/* Empty State - No Favorite Categories */}
+      {isAuthenticated && userProfile && userProfile.favorite_categories?.length === 0 && (
+        <div className="card" style={{
+          textAlign: 'center',
+          padding: '3rem 2rem',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white',
+          border: 'none'
+        }}>
+          <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎯</div>
+          <h2 style={{ color: 'white', marginBottom: '1rem', fontSize: '1.8rem' }}>
+            Personalize Your Feed
+          </h2>
+          <p style={{ fontSize: '1.1rem', marginBottom: '2rem', opacity: 0.95 }}>
+            Select topics you're interested in to see relevant posts here.<br/>
+            Make this page truly yours!
+          </p>
+          <button
+            onClick={() => navigate('/profile')}
+            style={{
+              padding: '1rem 2.5rem',
+              fontSize: '1.1rem',
+              backgroundColor: 'white',
+              color: '#667eea',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
+              transition: 'transform 0.2s, box-shadow 0.2s'
+            }}
+            onMouseOver={(e) => {
+              e.target.style.transform = 'translateY(-2px)';
+              e.target.style.boxShadow = '0 6px 20px rgba(0,0,0,0.3)';
+            }}
+            onMouseOut={(e) => {
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = '0 4px 15px rgba(0,0,0,0.2)';
+            }}
+          >
+            Choose Your Interests →
+          </button>
+          <div style={{ marginTop: '1.5rem', fontSize: '0.95rem', opacity: 0.9 }}>
+            Or browse <button
+              onClick={() => navigate('/categories')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'white',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+                fontSize: '0.95rem',
+                fontWeight: '500'
+              }}
+            >
+              all categories
+            </button> to discover topics
+          </div>
+        </div>
+      )}
 
       {/* Filter Panel - only show if user is authenticated and has favorite categories */}
       {isAuthenticated && userProfile?.favorite_categories?.length > 0 && (

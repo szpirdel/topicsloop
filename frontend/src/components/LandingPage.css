@@ -10,7 +10,6 @@
    ================================ */
 
 .landing-nav {
-  position: fixed;
   top: 0;
   left: 0;
   right: 0;
@@ -33,14 +32,14 @@
 .nav-logo {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.15rem;
   cursor: pointer;
 }
 
 .nav-logo-text {
-  font-size: 1.25rem;
-  font-weight: 800;
-  color: #667eea;
+  font-size: 3rem;
+  font-weight: 350;
+  color: #4cd6bc;
   letter-spacing: -0.02em;
 }
 
@@ -52,7 +51,7 @@
 
 .btn-nav-login {
   padding: 0.4rem 1rem;
-  color: #667eea;
+  color: #00d6c9;
   text-decoration: none;
   font-weight: 600;
   font-size: 0.875rem;
@@ -66,7 +65,7 @@
 
 .btn-nav-signup {
   padding: 0.4rem 1rem;
-  background-color: #667eea;
+  background-color: #ff9a66;
   color: white;
   text-decoration: none;
   font-weight: 600;
@@ -88,13 +87,13 @@
 
 .hero-section {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(#ff9a66 0%, #4cd6bc 100%);
   color: white;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  padding: 4rem 2rem 2rem 2rem;
+  padding: 2rem 2rem 2rem 2rem;
   position: relative;
 }
 
@@ -777,7 +776,7 @@
 
 .cta-section {
   padding: 5rem 2rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #4cd6bc 0%, #764ba2 100%);
   color: white;
 }
 
@@ -918,25 +917,6 @@
 
   .landing-nav-links {
     gap: 0.75rem;
-  }
-
-  .nav-logo {
-    gap: 0.5rem;
-  }
-
-  .nav-logo svg {
-    width: 32px;
-    height: 32px;
-  }
-
-  .nav-logo-text {
-    font-size: 1rem;
-  }
-
-  .btn-nav-login,
-  .btn-nav-signup {
-    padding: 0.35rem 0.85rem;
-    font-size: 0.8rem;
   }
 
   .hero-subtitle {

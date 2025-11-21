@@ -9,6 +9,15 @@ const Visualization = () => {
   const networkInstance = useRef(null);
   const isInitialized = useRef(false);
 
+  // Cache for different visibility levels
+  const currentVisibilityLevelRef = useRef(1); // Track current level using ref for immediate updates
+  const savedL2NodesRef = useRef([]); // Cache L2 (subcategories) nodes
+  const savedL2EdgesRef = useRef([]); // Cache L2 edges
+  const savedL3NodesRef = useRef([]); // Cache L3 (sub-subcategories) nodes
+  const savedL3EdgesRef = useRef([]); // Cache L3 edges
+  const savedPostNodesRef = useRef([]); // Cache post nodes
+  const savedPostEdgesRef = useRef([]); // Cache post edges
+
   // Always start with unified graph, but check for focus post
   const getInitialGraphType = () => {
     return 'unified';
@@ -34,7 +43,6 @@ const Visualization = () => {
   const [error, setError] = useState('');
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
   const [stats, setStats] = useState({});
-  const [expandedNodes, setExpandedNodes] = useState(new Set());
   const [isPersonalized, setIsPersonalized] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
   const [focusPostId, setFocusPostId] = useState(getInitialFocusPostId());
@@ -46,6 +54,8 @@ const Visualization = () => {
   const [isStabilizing, setIsStabilizing] = useState(false);
   const [successMessage, setSuccessMessage] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [currentZoomLevel, setCurrentZoomLevel] = useState(0.25); // Track current zoom level - start very zoomed out
+  const [currentVisibilityLevel, setCurrentVisibilityLevel] = useState(1); // Track what's currently visible: 1=L1, 2=L1+L2, 3=L1+L2+L3, 4=all+posts
 
   // Removed node menu state - using overlay buttons instead
 
@@ -205,7 +215,7 @@ const Visualization = () => {
       // Don't set loading state to prevent re-renders that destroy the network
 
       const similarPostsData = await fetchSimilarPosts(postId, {
-        threshold: 0.5,
+        threshold: 0.25,  // Lower threshold for semantic embeddings (typical range: 0.3-0.5)
         limit: 5,
         method: 'gnn'  // 🧠 Only use GNN for similarity search - this is AI-specific!
       });
@@ -516,48 +526,106 @@ const Visualization = () => {
     }
   }, []);
 
-  // Handle category expansion in posts graph
-  const handleCategoryExpansionInPostsGraph = useCallback(async (nodeId, categoryNode) => {
-    try {
-      console.log('🔄 Loading posts from category:', categoryNode.label);
 
-      // Extract category ID from node ID (format: "category_1")
-      const categoryId = nodeId.replace('category_', '');
+  // 🎯 CIRCULAR LAYOUT: Arrange nodes in circles by category
+  const arrangeNodesInCircles = useCallback((nodes) => {
+    // Separuj typy nodów
+    const categoryNodes = nodes.filter(n => n.type === 'category');
+    const postNodes = nodes.filter(n => n.type === 'post');
 
-      // Fetch post network focused on this category
-      const params = {
-        category_id: categoryId,
-        include_posts: true,
-        similarity_threshold: 0.7,
-        max_posts: 15,
-        max_connections: 3,
-        method: 'fallback'  // 🚀 OPTIMIZATION: Use fallback for category expansion (faster)
-      };
+    // Grupuj kategorie według poziomu
+    const l0Nodes = categoryNodes.filter(n => n.level === 0); // Main categories
+    const l1Nodes = categoryNodes.filter(n => n.level === 1); // Subcategories
+    const l2Nodes = categoryNodes.filter(n => n.level === 2); // Sub-subcategories
 
-      console.log('📊 Fetching category posts with params:', params);
-      const data = await fetchPostNetwork(params);
+    console.log(`🔵 Arranging circles: L0=${l0Nodes.length}, L1=${l1Nodes.length}, L2=${l2Nodes.length}, posts=${postNodes.length}`);
 
-      // Update graph data
-      setGraphData(data);
-      setStats(data.stats || {});
+    // Promienie okręgów
+    const L0_RADIUS = 400;  // Główne kategorie - duży okrąg
+    const L1_RADIUS = 150;  // Podkategorie wokół rodzica
+    const L2_RADIUS = 80;   // Sub-podkategorie wokół rodzica
+    const POST_RADIUS = 50; // Posty wokół kategorii
 
-      // Destroy and recreate network
-      if (networkInstance.current) {
-        networkInstance.current.destroy();
-        networkInstance.current = null;
+    // 1. Rozmieść L0 (główne kategorie) w dużym okręgu
+    l0Nodes.forEach((node, index) => {
+      const angle = (2 * Math.PI * index) / l0Nodes.length;
+      node.x = L0_RADIUS * Math.cos(angle);
+      node.y = L0_RADIUS * Math.sin(angle);
+      node.fixed = { x: true, y: true };
+    });
+
+    // Mapa pozycji kategorii dla dzieci
+    const categoryPositions = {};
+    l0Nodes.forEach(n => {
+      categoryPositions[n.id] = { x: n.x, y: n.y };
+    });
+
+    // 2. Rozmieść L1 (podkategorie) wokół ich rodziców L0
+    // Grupuj L1 według rodzica
+    const l1ByParent = {};
+    l1Nodes.forEach(node => {
+      const parentId = node.parent_id ? `category_${node.parent_id}` : null;
+      if (parentId && categoryPositions[parentId]) {
+        if (!l1ByParent[parentId]) l1ByParent[parentId] = [];
+        l1ByParent[parentId].push(node);
       }
+    });
 
-    } catch (error) {
-      console.error('❌ Failed to load category posts:', error);
-      setError('Failed to load posts from category');
-    }
+    Object.entries(l1ByParent).forEach(([parentId, children]) => {
+      const parentPos = categoryPositions[parentId];
+      children.forEach((node, index) => {
+        const angle = (2 * Math.PI * index) / children.length;
+        node.x = parentPos.x + L1_RADIUS * Math.cos(angle);
+        node.y = parentPos.y + L1_RADIUS * Math.sin(angle);
+        node.fixed = { x: true, y: true };
+        categoryPositions[node.id] = { x: node.x, y: node.y };
+      });
+    });
+
+    // 3. Rozmieść L2 wokół ich rodziców L1
+    const l2ByParent = {};
+    l2Nodes.forEach(node => {
+      const parentId = node.parent_id ? `category_${node.parent_id}` : null;
+      if (parentId && categoryPositions[parentId]) {
+        if (!l2ByParent[parentId]) l2ByParent[parentId] = [];
+        l2ByParent[parentId].push(node);
+      }
+    });
+
+    Object.entries(l2ByParent).forEach(([parentId, children]) => {
+      const parentPos = categoryPositions[parentId];
+      children.forEach((node, index) => {
+        const angle = (2 * Math.PI * index) / children.length;
+        node.x = parentPos.x + L2_RADIUS * Math.cos(angle);
+        node.y = parentPos.y + L2_RADIUS * Math.sin(angle);
+        node.fixed = { x: true, y: true };
+        categoryPositions[node.id] = { x: node.x, y: node.y };
+      });
+    });
+
+    // 4. Rozmieść posty wokół ich kategorii
+    const postsByCategory = {};
+    postNodes.forEach(node => {
+      const catId = node.category_id ? `category_${node.category_id}` : null;
+      if (catId && categoryPositions[catId]) {
+        if (!postsByCategory[catId]) postsByCategory[catId] = [];
+        postsByCategory[catId].push(node);
+      }
+    });
+
+    Object.entries(postsByCategory).forEach(([catId, posts]) => {
+      const catPos = categoryPositions[catId];
+      posts.forEach((node, index) => {
+        const angle = (2 * Math.PI * index) / posts.length;
+        node.x = catPos.x + POST_RADIUS * Math.cos(angle);
+        node.y = catPos.y + POST_RADIUS * Math.sin(angle);
+        node.fixed = { x: true, y: true };
+      });
+    });
+
+    console.log(`✅ Circular layout complete`);
+    return nodes;
   }, []);
-
-  // Debug function to reset expanded state
-  const resetExpandedNodes = () => {
-    console.log('🔄 Resetting all expanded nodes');
-    setExpandedNodes(new Set());
-  };
 
   // vis.js network options - dynamic based on graph type
   const networkOptions = useMemo(() => {
@@ -610,21 +678,21 @@ const Visualization = () => {
           enabled: true,  // Enable for initial layout
           stabilization: {
             enabled: true,
-            iterations: 5000,  // Layout calculation
-            updateInterval: 100,
+            iterations: 500,  // 🚀 REDUCED from 5000 to 500 for faster loading
+            updateInterval: 25,  // 🚀 REDUCED from 100 to 25 for faster updates
             fit: true,
             onlyDynamicEdges: false
           },
           forceAtlas2Based: {
-            gravitationalConstant: -62,  // Reduced by 87.5% total (from original -500)
-            centralGravity: 0.008,  // Strong pull to keep nodes very close
-            springLength: 50,  // Reduced by 87.5% total (from original 400)
-            springConstant: 0.08,  // Very strong springs for ultra-tight clustering
-            damping: 0.4,
-            avoidOverlap: 0.1  // Minimal overlap avoidance for very compact layout
+            gravitationalConstant: -40,  // Less repulsion = more compact (was -62)
+            centralGravity: 0.03,  // Stronger central pull = tighter cluster (was 0.008)
+            springLength: 25,  // Shorter springs = nodes closer together (was 50)
+            springConstant: 0.12,  // Stronger springs = tighter grouping (was 0.08)
+            damping: 0.6,  // 🚀 INCREASED from 0.4 to 0.6 for faster stabilization
+            avoidOverlap: 0.15  // Slight overlap avoidance for compact yet readable layout (was 0.1)
           },
           solver: 'forceAtlas2Based',
-          timestep: 0.35,
+          timestep: 0.7,  // 🚀 INCREASED from 0.35 to 0.7 for faster simulation
           adaptiveTimestep: true
         },
         interaction: {
@@ -643,8 +711,8 @@ const Visualization = () => {
         enabled: physicsEnabled,
         stabilization: {
           enabled: physicsEnabled,
-          iterations: physicsEnabled ? 2000 : 0,  // More iterations for 109 posts
-          updateInterval: 50,  // Less frequent updates = smoother
+          iterations: physicsEnabled ? 500 : 0,  // 🚀 REDUCED from 2000 to 500 for faster loading
+          updateInterval: 25,  // 🚀 REDUCED from 50 to 25 = more frequent updates = faster
           fit: true  // Auto-fit after stabilization
         },
         barnesHut: {
@@ -652,11 +720,11 @@ const Visualization = () => {
           centralGravity: 0.05,  // Very little central pull = spread out
           springLength: 200,  // Long springs = lots of space between nodes
           springConstant: 0.01,  // Loose springs = flexible positioning
-          damping: 0.2,  // High damping = faster stabilization
+          damping: 0.3,  // 🚀 INCREASED from 0.2 to 0.3 = faster stabilization
           avoidOverlap: 0.8  // Strong overlap avoidance
         },
         solver: 'barnesHut',  // Best for many nodes
-        timestep: 0.5  // Larger timestep = faster simulation
+        timestep: 0.8  // 🚀 INCREASED from 0.5 to 0.8 = faster simulation
       },
       layout: {
         improvedLayout: true,
@@ -703,8 +771,13 @@ const Visualization = () => {
           params.category_id = focusCategoryId;
         }
 
-        // Fetching unified network with posts
+        // ⏱️ TIMING: Measure API fetch time
+        const fetchStart = performance.now();
         data = await fetchPostNetwork(params);
+        const fetchEnd = performance.now();
+        console.log(`⏱️ API fetch time: ${(fetchEnd - fetchStart).toFixed(0)}ms (cached: ${data.stats?.cached})`);
+
+        // Fetching unified network with posts
       } else {
         // Original graph types
         let endpoint;
@@ -749,196 +822,34 @@ const Visualization = () => {
     }
   }, [focusPostId, focusCategoryId, isPersonalized]);
 
-  // Expand a node to show its subcategories
-  const expandNode = useCallback(async (nodeId) => {
-    console.log(`🚀 ENTER expandNode function for nodeId: ${nodeId}`);
-
-    try {
-      // Find the parent node to determine the level of subcategories
-      const parentNode = networkInstance.current.body.data.nodes.get(nodeId);
-      const subcategoryLevel = (parentNode?.level || 0) + 1;
-
-      console.log(`🔽 Expanding node ${nodeId} (${parentNode?.label}) - fetching level ${subcategoryLevel} subcategories`);
-
-      const response = await axios.get(`/api/viz/unified-network/?parent_id=${nodeId}&level=${subcategoryLevel}`);
-      const subcategoryData = response.data;
-
-      if (!networkInstance.current) return;
-
-      const nodes = networkInstance.current.body.data.nodes;
-      const edges = networkInstance.current.body.data.edges;
-
-      console.log(`📊 Received ${subcategoryData.nodes?.length || 0} subcategory nodes and ${subcategoryData.edges?.length || 0} edges`);
-
-      // Add subcategory nodes with full vis.js compatible properties
-      if (subcategoryData.nodes) {
-        console.log('📦 Raw subcategory nodes from API:', subcategoryData.nodes);
-
-        // Get parent node position for better subcategory positioning
-        const parentPosition = networkInstance.current.getPositions([nodeId])[nodeId];
-        console.log(`📍 Parent node position:`, parentPosition);
-
-        const nodesToAdd = subcategoryData.nodes
-          .filter(node => !nodes.get(node.id))
-          .map((node, index) => {
-            console.log(`➕ Preparing subcategory node: ${node.label} (id: ${node.id})`);
-
-            // Calculate position closer to parent node (reduced distance)
-            const angle = (index * (360 / subcategoryData.nodes.length)) * (Math.PI / 180);
-            const distance = 15; // Reduced by 87.5% total (from original ~120 to 15)
-            const x = parentPosition.x + distance * Math.cos(angle);
-            const y = parentPosition.y + distance * Math.sin(angle);
-
-            // Ensure all required vis.js properties are present
-            const visNode = {
-              id: node.id,
-              label: node.label,
-              title: node.title || node.label,
-              shape: node.shape || 'dot',
-              size: node.size || 20, // Updated to match base size
-              color: node.color || {
-                background: '#3498db',
-                border: '#2980b9'
-              },
-              font: node.font || {
-                size: 16, // Updated to match base font size
-                color: '#2c3e50'
-              },
-              // Position closer to parent
-              x: x,
-              y: y,
-              // Include any other properties from API
-              ...node,
-              // Force physics enabled but with initial position
-              physics: true,
-              fixed: false
-            };
-
-            console.log(`🔧 Processed vis.js node at position (${x.toFixed(1)}, ${y.toFixed(1)}):`, visNode);
-            return visNode;
-          });
-
-        if (nodesToAdd.length > 0) {
-          console.log(`📦 Adding ${nodesToAdd.length} nodes in batch to DataSet`);
-
-          try {
-            nodes.add(nodesToAdd);
-            console.log(`✅ Successfully added ${nodesToAdd.length} nodes to DataSet`);
-
-            // Verify all nodes were added
-            nodesToAdd.forEach(node => {
-              const addedNode = nodes.get(node.id);
-              console.log(`🔍 Verification - node ${node.id} in DataSet:`, addedNode ? '✅ CONFIRMED' : '❌ FAILED');
-            });
-
-          } catch (err) {
-            console.error(`❌ Failed to add nodes batch:`, err);
-          }
-        } else {
-          console.log('⚠️ All nodes already exist - no new nodes to add');
-        }
-      }
-
-      // Add parent-child visual connections (dashed lines) for ALL subcategory nodes
-      const parentChildEdges = subcategoryData.nodes
-        .filter(node => !edges.get(`parent-${nodeId}-child-${node.id}`)) // Only if edge doesn't exist
-        .map(childNode => {
-          const edgeId = `parent-${nodeId}-child-${childNode.id}`;
-          console.log(`🔗 Creating parent-child edge: ${nodeId} -> ${childNode.id} (${edgeId})`);
-          return {
-            id: edgeId,
-            from: nodeId,
-            to: childNode.id,
-            // Parent-child connection styling (dashed line)
-            dashes: [5, 5], // Dashed line pattern
-            color: {
-              color: '#95a5a6',
-              highlight: '#7f8c8d'
-            },
-            width: 1,
-            title: 'Parent-child relationship',
-            smooth: {
-              type: 'continuous',
-              forceDirection: 'none'
-            }
-          };
-        });
-
-      // Add semantic edges from API
-      if (subcategoryData.edges) {
-        console.log('🔗 Raw edges from API:', subcategoryData.edges);
-
-        subcategoryData.edges.forEach(edge => {
-          const edgeId = edge.id || `${edge.from}-${edge.to}`;
-          const edgeWithId = { ...edge, id: edgeId };
-
-          const existingEdge = edges.get(edgeId);
-          if (!existingEdge) {
-            console.log(`🔗 Adding semantic edge: ${edge.from} -> ${edge.to} (id: ${edgeId})`);
-
-            try {
-              edges.add(edgeWithId);
-              console.log(`✅ Successfully added semantic edge ${edgeId} to DataSet`);
-            } catch (err) {
-              console.error(`❌ Failed to add semantic edge ${edgeId}:`, err);
-            }
-          }
-        });
-      }
-
-      // Add all parent-child edges
-      if (parentChildEdges.length > 0) {
-        console.log(`🔗 Adding ${parentChildEdges.length} parent-child edges`);
-
-        try {
-          edges.add(parentChildEdges);
-          console.log(`✅ Successfully added ${parentChildEdges.length} parent-child edges to DataSet`);
-        } catch (err) {
-          console.error(`❌ Failed to add parent-child edges:`, err);
-        }
-      }
-
-      // Mark node as expanded
-      setExpandedNodes(prev => new Set([...prev, nodeId]));
-
-      // Final state verification
-      console.log(`📊 Final DataSet state: ${nodes.length} nodes, ${edges.length} edges`);
-
-      // Update the parent node appearance
-      const currentParentNode = nodes.get(nodeId);
-      if (currentParentNode) {
-        nodes.update({
-          ...currentParentNode,
-          title: currentParentNode.title.replace('🔽 Dwuklik = rozwiń', '🔼 Rozwięte'),
-          color: {
-            ...currentParentNode.color,
-            background: '#e74c3c'
-          }
-        });
-      }
-
-    } catch (error) {
-      console.error('❌ Error expanding node:', error);
-      console.error('Error details:', error.response?.data || error.message);
-    }
-  }, []);
 
   // Initialize network
   const initializeNetwork = useCallback(() => {
     if (!networkRef.current) return;
 
-    const nodes = new DataSet(graphData.nodes);
+    // ⏱️ TIMING: Measure vis.js rendering time
+    const renderStart = performance.now();
+
+    // 🎯 Apply circular layout before creating DataSet
+    const arrangedNodes = arrangeNodesInCircles([...graphData.nodes]);
+
+    const nodes = new DataSet(arrangedNodes);
     const edges = new DataSet(graphData.edges);
 
     const data = { nodes, edges };
 
     networkInstance.current = new Network(networkRef.current, data, networkOptions);
 
+    const renderEnd = performance.now();
+    console.log(`⏱️ Vis.js initial render: ${(renderEnd - renderStart).toFixed(0)}ms`);
+
     // 🔒 AUTO-DISABLE PHYSICS: Freeze nodes after initial stabilization
     // This prevents continuous node movement after the graph layout is complete
     if (currentGraph === 'hierarchical' || currentGraph === 'unified') {
+      const stabilizationStart = performance.now();
       networkInstance.current.once('stabilizationIterationsDone', () => {
-        console.log('✅ Stabilization complete - disabling physics to freeze nodes');
+        const stabilizationEnd = performance.now();
+        console.log(`✅ Stabilization complete in ${(stabilizationEnd - stabilizationStart).toFixed(0)}ms - disabling physics to freeze nodes`);
         if (networkInstance.current) {
           networkInstance.current.setOptions({ physics: { enabled: false } });
           console.log('🔒 Physics disabled - nodes frozen in place');
@@ -957,7 +868,91 @@ const Visualization = () => {
 
     // Set initial zoom and focus on specific post if available
     networkInstance.current.once('afterDrawing', () => {
-      console.log('🔍 Network drawing completed');
+      console.log('🔍 ========== NETWORK DRAWING COMPLETED ==========');
+      console.log('🎯 STARTING INITIAL LOAD - Progressive removal');
+
+      const allNodes = nodes.get();
+      const allEdges = edges.get();
+
+      console.log(`📊 Total nodes from API: ${allNodes.length}`);
+
+      // 🔍 DEBUG: Check what we got from API
+      const categoryNodes = allNodes.filter(node => node.type === 'category');
+      const postNodes = allNodes.filter(node => node.type === 'post');
+
+      console.log(`📂 Category nodes: ${categoryNodes.length}`);
+      console.log(`📄 Post nodes: ${postNodes.length}`);
+
+      const nodesWithoutLevel = categoryNodes.filter(n =>n.level === undefined || n.level === null);console.log(`❌ Categories WITHOUT level: ${nodesWithoutLevel.length}`);
+        if (nodesWithoutLevel.length > 0) {
+      console.log(`❌ Sample nodes without level:`, nodesWithoutLevel.slice(0, 5).map(n => n.label));}
+
+      // Group by level
+      const l0Nodes = categoryNodes.filter(n => n.level === 0);
+      const l1Nodes = categoryNodes.filter(n => n.level === 1);
+      const l2Nodes = categoryNodes.filter(n => n.level === 2);
+      const undefinedLevel = categoryNodes.filter(n => n.level === undefined);
+
+      console.log(`📊 Level breakdown:`);
+      console.log(`  - L0 (main): ${l0Nodes.length} nodes`);
+      console.log(`  - L1 (sub): ${l1Nodes.length} nodes`);
+      console.log(`  - L2 (sub-sub): ${l2Nodes.length} nodes`);
+      console.log(`  - Undefined level: ${undefinedLevel.length} nodes`);
+
+      // Sample categories with their properties
+      console.log(`📋 Sample categories:`);
+      categoryNodes.slice(0, 5).forEach(node => {
+        console.log(`  - ${node.label}: level=${node.level}, post_count=${node.post_count}, size=${node.size}`);
+      });
+
+      // Helper function to save and remove nodes
+      const saveAndRemove = (nodesToRemove, savedNodesRef, savedEdgesRef) => {
+        if (nodesToRemove.length === 0) return;
+
+        const nodeIds = nodesToRemove.map(n => n.id);
+        const positions = networkInstance.current.getPositions(nodeIds);
+
+        // Save nodes with positions
+        savedNodesRef.current = nodesToRemove.map(node => ({
+          ...node,
+          x: positions[node.id]?.x || 0,
+          y: positions[node.id]?.y || 0,
+          fixed: { x: true, y: true }
+        }));
+
+        // Save edges
+        savedEdgesRef.current = allEdges.filter(edge =>
+          nodeIds.includes(edge.from) || nodeIds.includes(edge.to)
+        );
+
+        // Remove from graph
+        if (savedEdgesRef.current.length > 0) {
+          edges.remove(savedEdgesRef.current.map(e => e.id));
+        }
+        nodes.remove(nodeIds);
+
+        console.log(`💾 Initial save: ${nodesToRemove.length} nodes, ${savedEdgesRef.current.length} edges`);
+      };
+
+      // Remove L2 categories (level 1)
+      const l2NodesToRemove = allNodes.filter(node => node.type === 'category' && node.level === 1);
+      console.log(`🗑️ Removing L2 nodes: ${l2NodesToRemove.length}`);
+      saveAndRemove(l2NodesToRemove, savedL2NodesRef, savedL2EdgesRef);
+
+      // Remove L3 categories (level 2)
+      const l3NodesToRemove = allNodes.filter(node => node.type === 'category' && node.level === 2);
+      console.log(`🗑️ Removing L3 nodes: ${l3NodesToRemove.length}`);
+      saveAndRemove(l3NodesToRemove, savedL3NodesRef, savedL3EdgesRef);
+
+      // Remove posts
+      const postNodesToRemove = allNodes.filter(node => node.type === 'post');
+      console.log(`🗑️ Removing post nodes: ${postNodesToRemove.length}`);
+      saveAndRemove(postNodesToRemove, savedPostNodesRef, savedPostEdgesRef);
+
+      console.log(`✅ Initial load complete - showing only L1 categories`);
+      console.log(`📊 Remaining nodes: ${nodes.get().length}`);
+      currentVisibilityLevelRef.current = 1;
+      setCurrentVisibilityLevel(1);
 
       if (focusPostId) {
         // Find the focused post node
@@ -990,7 +985,7 @@ const Visualization = () => {
 
           // Center view on the focused post
           networkInstance.current.focus(focusedPostNode.id, {
-            scale: 0.375,  // Reduced by 75% total from original 1.5
+            scale: 0.25,  // Very zoomed out - show only L1 categories
             animation: {
               duration: 1000,
               easingFunction: 'easeInOutQuad'
@@ -1009,7 +1004,7 @@ const Visualization = () => {
           console.log('⚠️ Focused post not found in nodes');
           // Fallback to normal zoom
           networkInstance.current.moveTo({
-            scale: 0.375,  // Reduced by 75% total from original 1.5
+            scale: 0.25,  // Very zoomed out - show only L1 categories
             animation: {
               duration: 500,
               easingFunction: 'easeInOutQuad'
@@ -1019,13 +1014,24 @@ const Visualization = () => {
       } else {
         // Normal zoom when no focus post
         networkInstance.current.moveTo({
-          scale: 0.375,  // Reduced by 75% total from original 1.5
+          scale: 0.25,  // Very zoomed out - show only L1 categories
           animation: {
             duration: 500,
             easingFunction: 'easeInOutQuad'
           }
         });
       }
+
+      // 🔓 Odmroź L0 nody po 1 sekundzie żeby można było je przeciągać
+      setTimeout(() => {
+        const l0Nodes = nodes.get().filter(n => n.type === 'category' && n.level === 0);
+        const unfreezeUpdates = l0Nodes.map(node => ({
+          id: node.id,
+          fixed: { x: false, y: false }
+        }));
+        nodes.update(unfreezeUpdates);
+        console.log(`🔓 Unfroze ${l0Nodes.length} L0 nodes - now draggable`);
+      }, 1000);
     });
 
     // Minimal event listeners for important debugging only
@@ -1087,14 +1093,11 @@ const Visualization = () => {
         const nodeId = params.nodes[0];
         const node = nodes.get(nodeId);
 
-
-        // === UNIFIED GRAPH DOUBLE-CLICK HANDLING (original logic) ===
+        // === UNIFIED GRAPH DOUBLE-CLICK HANDLING ===
         if (currentGraph === 'unified') {
           console.log(`🎯 Double-clicked node: ${node?.label} (id: ${nodeId}) type: ${node?.type}`);
 
-          // Node menu removed - no need to check visibility
-
-          // Handle post nodes in unified graph
+          // Handle post nodes in unified graph - focus on this post
           if (node?.type === 'post') {
             console.log('📄 Post double-clicked in unified graph - focusing on this post');
             setFocusPostId(node.post_id);
@@ -1102,63 +1105,14 @@ const Visualization = () => {
             return;
           }
 
-          // Handle category nodes when posts are included
+          // Category double-click - no expansion logic anymore
           if (node?.type === 'category') {
-            console.log('📂 Category double-clicked in unified view with posts - loading posts from this category');
-            handleCategoryExpansionInPostsGraph(nodeId, node);
+            console.log('📂 Category double-clicked - zoom-based loading will handle posts display');
             return;
-          }
-
-          // Original category expansion logic
-          console.log(`📊 Node details: has_subcategories=${node?.has_subcategories}, expanded=${expandedNodes.has(nodeId)}`);
-
-          // === DEBUG: DETAILED STATE INSPECTION ===
-        console.log('🔍 === DETAILED DEBUG STATE ===');
-        console.log('🔍 Current network nodes count:', networkInstance.current.body.data.nodes.length);
-        console.log('🔍 Current network edges count:', networkInstance.current.body.data.edges.length);
-        console.log('🔍 Expanded nodes set:', Array.from(expandedNodes));
-        console.log('🔍 Network body nodes DOM elements:', networkInstance.current.body.nodes ? Object.keys(networkInstance.current.body.nodes).length : 'null');
-        console.log('🔍 Network rendering status:', networkInstance.current.body.view ? 'view exists' : 'no view');
-        console.log('🔍 Physics simulation status:', networkInstance.current.physics.physicsEnabled);
-
-        // Check if any nodes with id 7 and 8 exist in any form
-        const nodeCheck7 = networkInstance.current.body.data.nodes.get(7);
-        const nodeCheck8 = networkInstance.current.body.data.nodes.get(8);
-        console.log('🔍 Node 7 in DataSet:', nodeCheck7 ? '✅ EXISTS' : '❌ MISSING');
-        console.log('🔍 Node 8 in DataSet:', nodeCheck8 ? '✅ EXISTS' : '❌ MISSING');
-
-        if (nodeCheck7) console.log('🔍 Node 7 details:', nodeCheck7);
-        if (nodeCheck8) console.log('🔍 Node 8 details:', nodeCheck8);
-
-        // Check rendering state
-        const bodyNodes = networkInstance.current.body.nodes;
-        if (bodyNodes) {
-          console.log('🔍 Node 7 in body.nodes:', bodyNodes[7] ? '✅ EXISTS' : '❌ MISSING');
-          console.log('🔍 Node 8 in body.nodes:', bodyNodes[8] ? '✅ EXISTS' : '❌ MISSING');
-
-          if (bodyNodes[7]) {
-            console.log('🔍 Node 7 body position:', {x: bodyNodes[7].x, y: bodyNodes[7].y});
-            console.log('🔍 Node 7 options:', bodyNodes[7].options);
-          }
-          if (bodyNodes[8]) {
-            console.log('🔍 Node 8 body position:', {x: bodyNodes[8].x, y: bodyNodes[8].y});
-            console.log('🔍 Node 8 options:', bodyNodes[8].options);
-          }
-        }
-
-        console.log('🔍 === END DEBUG STATE ===');
-
-          if (node && node.has_subcategories && !expandedNodes.has(nodeId)) {
-            console.log('🚀 FIRST TIME: Triggering expansion for node:', node.label);
-            expandNode(nodeId);
-          } else if (expandedNodes.has(nodeId)) {
-            console.log('⚠️ ALREADY EXPANDED: Node already in expanded set - this is the SECOND click scenario');
-          } else if (!node?.has_subcategories) {
-            console.log('⚠️ Node has no subcategories');
           }
         }
       } else {
-        console.log(`⚠️ Double-click conditions not met: nodes=${params.nodes.length}, graph=${currentGraph}`);
+        console.log(`⚠️ Double-click on empty space`);
       }
     });
 
@@ -1166,14 +1120,214 @@ const Visualization = () => {
       console.log('Node hovered:', params.node);
     });
 
+    // 🔍 PROGRESSIVE LOADING: Show L1 → L1+L2 → L1+L2+L3 → all+posts based on zoom
+    networkInstance.current.on('zoom', (params) => {
+      const zoomLevel = params.scale;
+      setCurrentZoomLevel(zoomLevel);
+
+      // 🎯 Zoom thresholds for progressive disclosure
+      const THRESHOLD_L2 = 0.35;  // Show L2 (subcategories)
+      const THRESHOLD_L3 = 0.55;  // Show L3 (sub-subcategories)
+      const THRESHOLD_POSTS = 0.75; // Show posts
+
+      // Determine target visibility level
+      let targetLevel;
+      if (zoomLevel < THRESHOLD_L2) {
+        targetLevel = 1; // Only L1
+      } else if (zoomLevel < THRESHOLD_L3) {
+        targetLevel = 2; // L1 + L2
+      } else if (zoomLevel < THRESHOLD_POSTS) {
+        targetLevel = 3; // L1 + L2 + L3
+      } else {
+        targetLevel = 4; // L1 + L2 + L3 + posts
+      }
+
+      // Only update if visibility level changed
+      const currentLevel = currentVisibilityLevelRef.current;
+
+      if (targetLevel !== currentLevel) {
+        console.log(`🔍 Zoom ${zoomLevel.toFixed(2)} → Level ${targetLevel} (L1${targetLevel >= 2 ? '+L2' : ''}${targetLevel >= 3 ? '+L3' : ''}${targetLevel >= 4 ? '+posts' : ''}) [from level ${currentLevel}]`);
+
+        currentVisibilityLevelRef.current = targetLevel;
+        setCurrentVisibilityLevel(targetLevel);
+
+        const allNodes = nodes.get();
+        const allEdges = edges.get();
+
+        // Helper function to save and remove nodes
+        const saveAndRemove = (nodesToRemove, savedNodesRef, savedEdgesRef) => {
+          if (nodesToRemove.length === 0) return;
+
+          const nodeIds = nodesToRemove.map(n => n.id);
+          const positions = networkInstance.current.getPositions(nodeIds);
+
+          // Save nodes with positions
+          savedNodesRef.current = nodesToRemove.map(node => ({
+            ...node,
+            x: positions[node.id].x,
+            y: positions[node.id].y,
+            fixed: { x: true, y: true }
+          }));
+
+          // Save edges
+          savedEdgesRef.current = allEdges.filter(edge =>
+            nodeIds.includes(edge.from) || nodeIds.includes(edge.to)
+          );
+
+          // Remove from graph
+          edges.remove(savedEdgesRef.current.map(e => e.id));
+          nodes.remove(nodeIds);
+
+          console.log(`🗑️ Removed ${nodesToRemove.length} nodes, ${savedEdgesRef.current.length} edges`);
+        };
+
+        // Helper function to restore nodes with circular layout around parents
+        const restore = (savedNodesRef, savedEdgesRef) => {
+          if (savedNodesRef.current.length === 0) return;
+
+          // 🔍 Check for duplicates before adding
+          const currentNodes = nodes.get();
+          const currentNodeIds = new Set(currentNodes.map(n => n.id));
+
+          const nodesToAdd = savedNodesRef.current.filter(node => !currentNodeIds.has(node.id));
+
+          if (nodesToAdd.length === 0) {
+            console.log(`⚠️ All nodes already exist - skipping restore`);
+            return;
+          }
+
+          // 🎯 Oblicz pozycje kołowe wokół rodziców
+          const RADIUS_L1 = 150;
+          const RADIUS_L2 = 80;
+          const RADIUS_POST = 50;
+
+          // Pobierz pozycje rodziców (nodów które są już widoczne)
+          const parentPositions = {};
+          currentNodes.forEach(n => {
+            const pos = networkInstance.current.getPositions([n.id])[n.id];
+            if (pos) parentPositions[n.id] = pos;
+          });
+
+          // 🎯 Użyj EDGES żeby znaleźć rodziców (relacje są w krawędziach!)
+          const allSavedEdges = [
+            ...savedL2EdgesRef.current,
+            ...savedL3EdgesRef.current,
+            ...savedPostEdgesRef.current
+          ];
+
+          // Grupuj nody według rodzica używając edges
+          const byParent = {};
+          nodesToAdd.forEach(node => {
+            // Znajdź edge który łączy ten node z rodzicem (from = parent, to = child)
+            const parentEdge = allSavedEdges.find(edge =>
+              edge.to === node.id && parentPositions[edge.from]
+            );
+
+            if (parentEdge) {
+              const parentId = parentEdge.from;
+              if (!byParent[parentId]) byParent[parentId] = [];
+              byParent[parentId].push(node);
+            }
+          });
+
+          console.log('🔍 DEBUG: Found parents for', Object.keys(byParent).length, 'groups');
+
+          // Ustaw pozycje w okręgach wokół rodziców
+          Object.entries(byParent).forEach(([parentId, children]) => {
+            const parentPos = parentPositions[parentId];
+            const radius = children[0]?.type === 'post' ? RADIUS_POST :
+                          children[0]?.level === 2 ? RADIUS_L2 : RADIUS_L1;
+
+            children.forEach((node, index) => {
+              const angle = (2 * Math.PI * index) / children.length;
+              node.x = parentPos.x + radius * Math.cos(angle);
+              node.y = parentPos.y + radius * Math.sin(angle);
+              node.fixed = { x: true, y: true };
+            });
+          });
+
+          nodes.add(nodesToAdd);
+
+          // Only add edges that don't already exist
+          const currentEdges = edges.get();
+          const currentEdgeIds = new Set(currentEdges.map(e => e.id));
+          const edgesToAdd = savedEdgesRef.current.filter(edge => !currentEdgeIds.has(edge.id));
+
+          if (edgesToAdd.length > 0) {
+            edges.add(edgesToAdd);
+          }
+
+          console.log(`✅ Restored ${nodesToAdd.length} nodes in circles, ${edgesToAdd.length} edges`);
+
+          // Unfreeze after 500ms
+          setTimeout(() => {
+            const unfreezeUpdates = nodesToAdd.map(node => ({
+              id: node.id,
+              fixed: { x: false, y: false }
+            }));
+            nodes.update(unfreezeUpdates);
+            console.log(`🔓 Unfroze ${nodesToAdd.length} restored nodes`);
+          }, 500);
+        };
+
+        // 📉 ZOOM OUT: Remove higher levels
+        if (targetLevel < currentLevel) {
+          console.log(`📉 ZOOM OUT: from level ${currentLevel} to ${targetLevel}`);
+
+          // Remove posts if going below level 4
+          if (currentLevel >= 4 && targetLevel < 4) {
+            const postNodes = allNodes.filter(node => node.type === 'post');
+            console.log(`  🗑️ Removing ${postNodes.length} posts`);
+            saveAndRemove(postNodes, savedPostNodesRef, savedPostEdgesRef);
+          }
+
+          // Remove L3 if going below level 3
+          if (currentLevel >= 3 && targetLevel < 3) {
+            const l3Nodes = allNodes.filter(node => node.type === 'category' && node.level === 2);
+            console.log(`  🗑️ Removing ${l3Nodes.length} L3 nodes`);
+            saveAndRemove(l3Nodes, savedL3NodesRef, savedL3EdgesRef);
+          }
+
+          // Remove L2 if going below level 2
+          if (currentLevel >= 2 && targetLevel < 2) {
+            const l2Nodes = allNodes.filter(node => node.type === 'category' && node.level === 1);
+            console.log(`  🗑️ Removing ${l2Nodes.length} L2 nodes`);
+            saveAndRemove(l2Nodes, savedL2NodesRef, savedL2EdgesRef);
+          }
+        }
+
+        // 📈 ZOOM IN: Add lower levels
+        if (targetLevel > currentLevel) {
+          console.log(`📈 ZOOM IN: from level ${currentLevel} to ${targetLevel}`);
+
+          // Add L2 if reaching level 2
+          if (currentLevel < 2 && targetLevel >= 2) {
+            console.log(`  📦 Restoring L2 nodes`);
+            restore(savedL2NodesRef, savedL2EdgesRef);
+          }
+
+          // Add L3 if reaching level 3
+          if (currentLevel < 3 && targetLevel >= 3) {
+            console.log(`  📦 Restoring L3 nodes`);
+            restore(savedL3NodesRef, savedL3EdgesRef);
+          }
+
+          // Add posts if reaching level 4
+          if (currentLevel < 4 && targetLevel >= 4) {
+            console.log(`  📦 Restoring posts`);
+            restore(savedPostNodesRef, savedPostEdgesRef);
+          }
+        }
+      }
+    });
+
     // Clean up - no right-click handlers needed anymore
-  }, [graphData, networkOptions, currentGraph, expandedNodes]);
+  }, [graphData, networkOptions, currentGraph, arrangeNodesInCircles]);
 
   // Log when useEffect runs to debug re-rendering issues
   console.log('🔄 useEffect [initializeNetwork] running. Trigger:', {
     graphDataNodes: graphData?.nodes?.length,
-    currentGraph,
-    expandedNodesSize: expandedNodes.size
+    currentGraph
   });
 
   // Click outside handler removed - no node menu needed
@@ -1181,7 +1335,6 @@ const Visualization = () => {
   // Handle graph type change
   const handleGraphTypeChange = (newType) => {
     setCurrentGraph(newType);
-    setExpandedNodes(new Set()); // Reset expanded nodes when changing graph types
 
     // Clear similarity highlighting when changing graph types
     clearSimilarityHighlighting();
@@ -1199,7 +1352,6 @@ const Visualization = () => {
   const handlePersonalizationToggle = () => {
     const newPersonalized = !isPersonalized;
     setIsPersonalized(newPersonalized);
-    setExpandedNodes(new Set()); // Reset expanded nodes
     fetchGraphData(currentGraph, newPersonalized);
   };
 
@@ -1314,7 +1466,7 @@ const Visualization = () => {
 
   return (
     <div
-      className="content-container"
+      className={`content-container ${!isFullscreen ? 'visualization-page' : ''}`}
       style={isFullscreen ? {
         position: 'fixed',
         top: 0,
@@ -1327,205 +1479,8 @@ const Visualization = () => {
         overflow: 'auto'
       } : {}}
     >
-      {!isFullscreen && (
-        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-          <h1 style={{ color: '#2c3e50', margin: 0 }}>Network Visualizations</h1>
-        </div>
-      )}
-
-      <div
-        className="visualization-container"
-        style={isFullscreen ? {
-          textAlign: 'center',
-          height: '100vh',
-          display: 'flex',
-          flexDirection: 'column'
-        } : {
-          textAlign: 'center'
-        }}
-      >
-        {/* Graph Type Selector */}
-        <div className="visualization-controls" style={{ textAlign: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-          {/* Tab Navigation */}
-          <div style={{
-            borderBottom: '2px solid #e9ecef',
-            marginBottom: '1rem',
-            display: 'inline-block'
-          }}>
-            <div className="d-flex gap-0">
-              <button
-                onClick={() => handleGraphTypeChange('unified')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: '0.75rem 1.5rem',
-                  borderBottom: currentGraph === 'unified' ? '3px solid #3498db' : '3px solid transparent',
-                  color: currentGraph === 'unified' ? '#3498db' : '#6c757d',
-                  fontWeight: currentGraph === 'unified' ? 'bold' : 'normal',
-                  fontSize: '1rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease'
-                }}
-              >
-                🧠 AI Semantic Network
-              </button>
-
-
-              <button
-                onClick={() => handleGraphTypeChange('users')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: '0.75rem 1.5rem',
-                  borderBottom: currentGraph === 'users' ? '3px solid #3498db' : '3px solid transparent',
-                  color: currentGraph === 'users' ? '#3498db' : '#6c757d',
-                  fontWeight: currentGraph === 'users' ? 'bold' : 'normal',
-                  fontSize: '1rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease'
-                }}
-              >
-                👥 User Network
-              </button>
-
-            </div>
-          </div>
-
-          {/* Tab Content - AI Semantic Network Options */}
-          {currentGraph === 'unified' && (
-            <div className="d-flex gap-2 justify-content-center flex-wrap" style={{ marginBottom: '1rem' }}>
-              <button
-                onClick={handlePersonalizationToggle}
-                className={`btn btn-sm ${isPersonalized ? 'btn-success' : 'btn-outline-success'}`}
-              >
-                {isPersonalized ? '💙 My Favorites' : '🌍 Explore All'}
-              </button>
-
-
-              <button
-                onClick={() => setShowLegend(!showLegend)}
-                className="btn btn-sm btn-outline-info"
-              >
-                ℹ️ Legend
-              </button>
-
-              <button
-                onClick={handlePhysicsToggle}
-                className={`btn btn-sm ${physicsEnabled ? 'btn-primary' : 'btn-outline-primary'}`}
-                disabled={isStabilizing}
-              >
-                {isStabilizing ? '⚡ Stabilizing...' : physicsEnabled ? '🔧 Turn Off Physics' : '⚡ Turn On Physics'}
-              </button>
-
-              <button
-                onClick={toggleFullscreen}
-                className={`btn btn-sm ${isFullscreen ? 'btn-success' : 'btn-outline-success'}`}
-              >
-                {isFullscreen ? '🪟 Exit Fullscreen' : '⛶ Fullscreen'}
-              </button>
-
-            </div>
-          )}
-
-          {/* Graph Description - only show in normal mode */}
-          {!isFullscreen && (
-            <div style={{ color: '#6c757d', fontSize: '0.9rem', marginTop: '0.5rem', textAlign: 'center' }}>
-              {currentGraph === 'unified'
-                ? isPersonalized
-                  ? `Personalized view: Your favorite categories (blue) plus related categories (orange) and posts (red boxes). Click posts for details. Double-click expandable nodes to reveal subcategories.`
-                  : `AI-powered semantic connections enhanced with shared post analysis including post nodes (red boxes). Click posts for details. Double-click expandable nodes to reveal subcategories.`
-                : currentGraph === 'users'
-                ? 'Shows users connected by shared interests. Connection strength indicates common categories.'
-                : 'Network visualization of your content relationships.'
-              }
-              {!physicsEnabled && (
-                <div style={{ marginTop: '0.5rem', fontWeight: 'bold', color: '#007bff' }}>
-                  🔧 Manual Mode: Drag nodes to position them freely. Physics disabled.
-                </div>
-              )}
-              {physicsEnabled && (
-                <div style={{ marginTop: '0.5rem', fontWeight: 'bold', color: '#28a745' }}>
-                  ⚡ Physics Mode: Automatic layout with force-directed positioning.
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Legend Modal - only show when toggled */}
-          {currentGraph === 'unified' && showLegend && (
-            <div
-              style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0,0,0,0.5)',
-                zIndex: 1000,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-              onClick={() => setShowLegend(false)}
-            >
-              <div
-                className="card"
-                style={{
-                  padding: '2rem',
-                  maxWidth: '600px',
-                  width: '90%',
-                  backgroundColor: 'white',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                  <h3 style={{ margin: 0, color: '#2c3e50' }}>Network Legend</h3>
-                  <button
-                    onClick={() => setShowLegend(false)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      fontSize: '1.5rem',
-                      cursor: 'pointer',
-                      color: '#6c757d'
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div style={{ fontSize: '1rem', lineHeight: '1.8' }}>
-                  {/* Connections Section */}
-                  <div style={{ marginBottom: '1.5rem' }}>
-                    <h4 style={{ color: '#6c757d', fontSize: '1rem', marginBottom: '0.5rem' }}>Connections:</h4>
-                    <div>🔵 <strong style={{ color: '#3498db' }}>Strong Connections</strong> - Over 50% similarity</div>
-                    <div>🔘 <strong style={{ color: '#95a5a6' }}>Moderate Connections</strong> - Under 50% similarity</div>
-                  </div>
-
-                  {/* Nodes Section */}
-                  <div>
-                    <h4 style={{ color: '#6c757d', fontSize: '1rem', marginBottom: '0.5rem' }}>Categories:</h4>
-                    {isPersonalized ? (
-                      <>
-                        <div>💙 <strong style={{ color: '#3498db' }}>Your Favorites</strong> - Categories you've marked as favorites</div>
-                        <div>🟠 <strong style={{ color: '#f39c12' }}>Related Categories</strong> - Categories connected to your favorites</div>
-                        <div>🔴 <strong style={{ color: '#e74c3c' }}>Expanded Nodes</strong> - Categories showing subcategories</div>
-                        <div>🔽 <strong>Double-click expandable nodes</strong> to reveal subcategories</div>
-                      </>
-                    ) : (
-                      <>
-                        <div>🔴 <strong style={{ color: '#e74c3c' }}>Expanded Nodes</strong> - Categories showing subcategories</div>
-                        <div>🔽 <strong>Double-click expandable nodes</strong> to reveal subcategories</div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+      {/* Clean minimal view - no controls, just the graph */}
+      <div className="visualization-container" style={{ position: 'relative', height: '100%' }}>
 
         {/* Loading State */}
         {loading && (
@@ -1581,21 +1536,6 @@ const Visualization = () => {
         )}
       </div>
 
-      {/* Controls Info */}
-      {!isFullscreen && (
-        <div className="text-center mt-3" style={{ fontSize: '0.8rem', color: '#6c757d' }}>
-          <strong>Controls:</strong> Drag to pan • Scroll to zoom • Click nodes for details • Hover for information
-          {currentGraph === 'unified' && (
-            <span> • <strong>Double-click expandable nodes</strong> to reveal subcategories • <strong>Click post nodes</strong> for details</span>
-          )}
-          {!physicsEnabled && (
-            <span> • <strong>Drag nodes</strong> to reposition them manually (Manual Mode)</span>
-          )}
-          {physicsEnabled && (
-            <span> • <strong>Physics active</strong> - nodes auto-position with forces</span>
-          )}
-        </div>
-      )}
 
       {/* Post Details Modal */}
       {showPostModal && selectedPost && (

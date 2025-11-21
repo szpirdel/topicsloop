@@ -13,7 +13,7 @@ class CategorySerializer(serializers.ModelSerializer):
     full_path = serializers.CharField(source='get_full_path', read_only=True)
     path = serializers.SerializerMethodField()
     is_main_category = serializers.SerializerMethodField()
-    post_count = serializers.IntegerField(read_only=True)
+    post_count = serializers.SerializerMethodField()  # Changed to method to use recursive count
     subcategory_count = serializers.IntegerField(read_only=True)
     has_subcategories = serializers.SerializerMethodField()
 
@@ -55,6 +55,13 @@ class CategorySerializer(serializers.ModelSerializer):
     def get_has_subcategories(self, obj):
         """Check if category has subcategories"""
         return getattr(obj, 'subcategory_count', 0) > 0 or obj.subcategories.exists()
+
+    def get_post_count(self, obj):
+        """Get recursive post count (includes all subcategories)"""
+        # Use cached annotation if available (from queryset), otherwise calculate
+        if hasattr(obj, '_annotated_post_count'):
+            return obj._annotated_post_count
+        return obj.get_recursive_post_count()
 
     def create(self, validated_data):
         parent_id = validated_data.pop('parent_id', None)

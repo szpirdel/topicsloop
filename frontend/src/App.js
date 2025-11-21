@@ -11,7 +11,6 @@ import Profile from "./components/Profile";
 import Visualization from "./components/Visualization";
 import Categories from "./components/Categories";
 import LandingPage from "./components/LandingPage";
-import TopicsLoopIcon from "./components/TopicsLoopIcon";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
 // Shared Search Component (for reuse on different pages)
@@ -126,22 +125,29 @@ const Navigation = () => {
             textDecoration: 'none'
           }}
         >
-          <TopicsLoopIcon size={40} />
+          <img
+            src="/logo.png"
+            alt="LookBeyond.io Logo"
+            style={{
+              height: '40px',
+              width: 'auto'
+            }}
+          />
           <span style={{
             color: '#667eea',
             fontSize: '1.25rem',
             fontWeight: '800',
             letterSpacing: '-0.02em'
           }}>
-            TopicsLoop
+            LookBeyond.io
           </span>
         </Link>
 
         {/* All navigation links on the right with tighter spacing */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {/* My TopicsLoop only for authenticated users */}
+          {/* My LookBeyond only for authenticated users */}
           {isAuthenticated && (
-            <Link to="/posts" style={getNavLinkStyle('/posts')}>My TopicsLoop</Link>
+            <Link to="/posts" style={getNavLinkStyle('/posts')}>My LookBeyond</Link>
           )}
 
           {/* Browse Systematically always visible */}
